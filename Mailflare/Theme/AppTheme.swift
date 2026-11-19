@@ -21,18 +21,18 @@ enum AppTheme {
 	static let prominentPillFill = adaptive(dark: 0xFFFFFF, light: NSColor(white: 0.1, alpha: 1))
 	static let prominentPillText = adaptive(dark: 0x111111, light: NSColor(white: 1, alpha: 1))
 	/// The selected row in lists, and the soft pill button's fill.
-	static let railSelection = adaptive(dark: 0x444444, light: NSColor(white: 0.898, alpha: 1))
+	static let railSelection = adaptive(dark: 0x444444, light: NSColor(rgb: 0xE3EAFF))
 	/// Notices, summaries, chips and fields: a light borderless band.
-	static let composerContextFill = adaptive(dark: 0x272727, light: NSColor(white: 0.96, alpha: 1))
+	static let composerContextFill = adaptive(dark: 0x272727, light: NSColor(rgb: 0xF3F5F9))
 	/// The hairline between panes and around cards.
-	static let cardStroke = adaptive(dark: 0x3c3c3c, light: NSColor(white: 0.90, alpha: 1))
+	static let cardStroke = adaptive(dark: 0x3c3c3c, light: NSColor(rgb: 0xE2E6EE))
 	/// The window's own chrome: the titlebar band, the rail and the sidebar sit on it. Translucent,
 	/// so the window's vibrancy shows through (the container is transparent).
-	static let chrome = translucent(dark: 0x333333, light: NSColor(white: 0.945, alpha: 1), alpha: 0.55)
+	static let chrome = translucent(dark: 0x333333, light: NSColor(rgb: 0xF3F5F9), alpha: 0.55)
 	/// The outline around the main card and the account dropdown: none in the dark appearance,
 	/// the hairline grey in the light one.
 	static let outline = Color(nsColor: NSColor(name: nil) { appearance in
-		appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.clear : NSColor(white: 0.90, alpha: 1)
+		appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.clear : NSColor(rgb: 0xE2E6EE)
 	})
 	/// A hovered row.
 	static let rowHighlight = Color(nsColor: NSColor(name: nil) { appearance in

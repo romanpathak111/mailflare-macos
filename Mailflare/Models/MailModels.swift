@@ -84,6 +84,8 @@ struct ComposeDraft: Identifiable {
 	var replacesDraftID: String?
 	/// The account the message is written in; nil is the account in view.
 	var accountID: String?
+	/// For a reply: the listed message it answers, so sending it can move its conversation to Waiting.
+	var answeringID: String?
 }
 
 extension OutgoingAttachment: Identifiable {

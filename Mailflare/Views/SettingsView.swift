@@ -21,6 +21,7 @@ struct SettingsView: View {
 					case .general: GeneralSettings()
 					case .notifications: NotificationSettingsPage()
 					case .accounts: AccountSettings()
+					case .assistant: AssistantSettingsPage()
 					case .ai: AISettingsPage()
 					case .mcp: MCPSettingsPage()
 					case .license: LicenseSettings()
@@ -435,7 +436,7 @@ private struct NotificationSettingsPage: View {
 /// The Accounts page: a menu of three tabs, Organize, Accounts and Inbox Views.
 private struct AccountSettings: View {
 	private enum Tab: String, CaseIterable, Identifiable {
-		case accounts = "Accounts", organize = "Organize", views = "Inbox Views", tabs = "Custom Tabs"
+		case accounts = "Accounts", folders = "Folders", organize = "Organize", views = "Inbox Views", tabs = "Custom Tabs"
 		var id: String { rawValue }
 	}
 
@@ -459,6 +460,7 @@ private struct AccountSettings: View {
 			switch tab {
 			case .organize: OrganizeTab()
 			case .accounts: AccountsTab()
+			case .folders: FoldersTab()
 			case .views: InboxViewsTab()
 			case .tabs: CustomTabsTab()
 			}
@@ -582,6 +584,68 @@ private struct InboxViewsTab: View {
 	}
 }
 
+/// Every account's folders (labels on Gmail) in one place: pick each one's colour, rename, delete or add.
+private struct FoldersTab: View {
+	@Environment(MailStore.self) private var store
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 22) {
+			Text("Folders belong to an account. Statuses work across all of them, so a conversation keeps its status in any folder.")
+				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+			ForEach(store.accountList) { account in
+				let gmail = store.isGmailAccount(account)
+				let noun = gmail ? "Label" : "Folder"
+				let folders = store.customFolders(of: account.id)
+				let support = store.folderSupport(accountID: account.id)
+				SettingsGroup(title: "\(store.accountName(account)) · \(account.email)") {
+					if folders.isEmpty {
+						SettingsRow {
+							Text("No \(noun.lowercased())s yet").font(Typography.body).foregroundStyle(.secondary)
+							Spacer(minLength: 0)
+						}
+					}
+					ForEach(Array(folders.enumerated()), id: \.element.id) { index, box in
+						if index > 0 { SettingsDivider() }
+						SettingsRow {
+							colorMenu(for: box)
+							Text(box.name).font(Typography.body).lineLimit(1)
+							Spacer(minLength: 8)
+							if box.unreadEmails > 0 { CountBadge(count: Int(box.unreadEmails)) }
+							if support?.canRename == true {
+								Button("Rename") { store.folderRequest = .init(accountID: account.id, kind: .rename(box)) }.buttonStyle(.pill)
+							}
+							if support?.canDelete == true {
+								Button("Delete") { store.folderRequest = .init(accountID: account.id, kind: .delete(box)) }
+									.buttonStyle(.pill).foregroundStyle(.red)
+							}
+						}
+					}
+				}
+				if store.canCreateFolders(accountID: account.id) {
+					WideButton(title: "New \(noun)", icon: .add) {
+						store.folderRequest = .init(accountID: account.id, kind: .create(parentID: store.inboxAddresses(of: account.id).first?.id))
+					}
+				}
+			}
+		}
+	}
+
+	/// The folder's icon in its colour; opening it offers the palette.
+	private func colorMenu(for box: Mailbox) -> some View {
+		Menu {
+			ForEach(Array(FolderColors.swatches.enumerated()), id: \.element.id) { index, swatch in
+				Button { store.folderColors.set(index, for: box.id) } label: {
+					Text(store.folderColors.index(for: box.id) == index ? "✓  \(swatch.name)" : swatch.name)
+				}
+			}
+		} label: {
+			HIcon(.folder, size: 17).foregroundStyle(store.folderColors.color(for: box.id)).frame(width: 26, height: 26).contentShape(Rectangle())
+		}
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+		.help("Folder colour")
+	}
+}
+
 private struct AccountsTab: View {
 	@Environment(MailStore.self) private var store
 	/// The account whose page is open; nil shows the list. The page slides in from the right.
@@ -623,13 +687,25 @@ private struct AccountsTab: View {
 								ProfileAvatar(key: AvatarCache.key(account: account.id), name: store.accountName(account), size: 32)
 								VStack(alignment: .leading, spacing: 1) {
 									Text(store.accountName(account)).font(Typography.bodySemibold).lineLimit(1)
-									Text(account.email).font(Typography.meta).foregroundStyle(.secondary).lineLimit(1)
+									HStack(spacing: 6) {
+										Text(account.email).font(Typography.meta).foregroundStyle(.secondary).lineLimit(1)
+										if KeychainCredentialStore().load(accountId: account.id) == nil {
+											Text("Needs sign-in").font(Typography.meta.weight(.semibold)).foregroundStyle(ThreadStatus.waiting.ink)
+												.padding(.horizontal, 7).padding(.vertical, 1).background(Capsule().fill(ThreadStatus.waiting.tint))
+										} else {
+											let unread = store.unreadCount(accountID: account.id, inbox: nil)
+											if unread > 0 { Text("\(unread) unread").font(Typography.meta).foregroundStyle(.secondary) }
+										}
+									}
 								}
 								Spacer(minLength: 8)
 							}
 							.contentShape(Rectangle())
 						}
 						.buttonStyle(.plain)
+						if KeychainCredentialStore().load(accountId: account.id) == nil {
+							Button("Sign in again") { store.showAddAccount = true }.buttonStyle(AccentPillStyle())
+						}
 						Button("Sign Out") { signingOut = account }
 							.buttonStyle(.pill).foregroundStyle(.red)
 						Button { withAnimation(.snappy(duration: 0.25)) { openID = account.id } } label: {
@@ -775,6 +851,118 @@ private struct AccountDetail: View {
 		panel.message = "Choose a picture for \(savedName)"
 		guard panel.runModal() == .OK, let url = panel.url else { return }
 		if !store.avatars.setLocal(key: key, from: url) { note = "That file couldn't be read as a picture." }
+	}
+}
+
+/// Connect Claude or Codex, and choose what the assistant does with statuses. Each service is one
+/// provider of the AI Providers page: connecting adds it with its key, which stays in the Keychain.
+private struct AssistantSettingsPage: View {
+	@Environment(MailStore.self) private var store
+	@AppStorage(AssistantSettings.suggestStatusKey) private var suggestStatus = true
+	@AppStorage(AssistantSettings.draftRepliesKey) private var draftReplies = true
+	@AppStorage(AssistantSettings.todayBriefKey) private var todayBrief = true
+	@AppStorage(AssistantSettings.autoArchiveKey) private var autoArchive = false
+	@State private var modelCache: [String: [String]] = [:]
+	@State private var editing: AIProviderConfig?
+	@State private var editingIsNew = false
+	@State private var keyText = ""
+
+	private var ai: AISettings { store.ai }
+
+	private struct Service: Identifiable {
+		var preset: AIProviderPreset
+		var name: String
+		var maker: String
+		var icon: AppIcon
+		var id: String { preset.rawValue }
+	}
+
+	private let services = [
+		Service(preset: .anthropic, name: "Claude", maker: "Anthropic", icon: .sparkles),
+		Service(preset: .openai, name: "Codex", maker: "OpenAI", icon: .sourceCode),
+	]
+
+	var body: some View {
+		Text("Connect your own account. The assistant suggests a status for each conversation, drafts replies and writes your Today note, using the service you choose.")
+			.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+		HStack(alignment: .top, spacing: 12) {
+			ForEach(services) { card($0) }
+		}
+		SettingsGroup(title: "What the assistant does", footer: "The assistant never sends mail. Drafts open in the composer, and you press Send. Mail it reads goes to the service you connected.") {
+			SettingsToggle(title: "Suggest a status for new mail", detail: "Proposes Needs reply, Waiting, Can archive or Long-term value. You confirm.", isOn: $suggestStatus)
+			SettingsDivider()
+			SettingsToggle(title: "Draft replies", detail: "Offers a reply for conversations marked Needs reply.", isOn: $draftReplies)
+			SettingsDivider()
+			SettingsToggle(title: "Show the assistant on Today", detail: "A card with what it can do for your day.", isOn: $todayBrief)
+			SettingsDivider()
+			SettingsToggle(title: "Archive without asking", detail: "Moves Can archive conversations to Archive as soon as they are sorted. Off by default.", isOn: $autoArchive)
+		}
+		if ai.providers.count > 0 {
+			WideButton(title: "More providers and models…") { store.settingsPage = .ai }
+		}
+	}
+
+	/// The provider of a service, when one has been added.
+	private func provider(_ preset: AIProviderPreset) -> AIProviderConfig? {
+		ai.providers.first { $0.preset == preset }
+	}
+
+	private func card(_ service: Service) -> some View {
+		let config = provider(service.preset)
+		let connected = config.map(ai.isReady) ?? false
+		let inUse = config?.id == ai.active?.id && connected
+		return VStack(alignment: .leading, spacing: 14) {
+			HStack(spacing: 10) {
+				HIcon(service.icon, size: 18)
+					.frame(width: 40, height: 40)
+					.background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(AppTheme.composerContextFill))
+				VStack(alignment: .leading, spacing: 1) {
+					Text(service.name).font(.system(size: 16, weight: .bold))
+					Text(service.maker).font(Typography.meta).foregroundStyle(.secondary)
+				}
+				Spacer(minLength: 4)
+				HStack(spacing: 5) {
+					Circle().fill(connected ? ThreadStatus.longTerm.dot : ThreadStatus.canArchive.dot).frame(width: 6, height: 6)
+					Text(connected ? "Connected" : "Not connected").font(Typography.meta.weight(.semibold))
+				}
+				.foregroundStyle(connected ? ThreadStatus.longTerm.ink : ThreadStatus.canArchive.ink)
+				.padding(.horizontal, 9).padding(.vertical, 4)
+				.background(Capsule().fill(connected ? ThreadStatus.longTerm.tint : ThreadStatus.canArchive.tint))
+				.fixedSize()
+			}
+			Text(connected
+				 ? "\(config?.model ?? "")\(inUse ? " · in use" : ""). Your key is kept in the Keychain."
+				 : "Add your \(service.maker) API key to use \(service.name) as your assistant. You can connect both and choose one.")
+				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+			Spacer(minLength: 0)
+			HStack(spacing: 8) {
+				if let config, connected {
+					Button("Manage") { edit(config, isNew: false) }.buttonStyle(.pill)
+					if !inUse { Button("Use \(service.name)") { ai.select(providerID: config.id, model: config.model) }.buttonStyle(.pill) }
+					Button("Disconnect") { ai.remove(config.id) }.buttonStyle(.pill).foregroundStyle(.red)
+				} else {
+					Button("Connect \(service.name)") { edit(config ?? AIProviderConfig(preset: service.preset), isNew: config == nil) }
+						.buttonStyle(AccentPillStyle())
+				}
+			}
+		}
+		.frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
+		.padding(18)
+		.background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(connected ? ThreadStatus.needsReply.tint.opacity(0.5) : AppTheme.elevated))
+		.overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? ThreadStatus.needsReply.dot.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1))
+		.sheet(isPresented: Binding(get: { editing?.preset == service.preset }, set: { if !$0 { editing = nil } })) {
+			ProviderEditor(config: Binding(get: { editing ?? AIProviderConfig(preset: service.preset) }, set: { editing = $0 }),
+						   key: $keyText, isNew: editingIsNew, cache: $modelCache) {
+				if let config = editing { ai.save(config, key: keyText) }
+				editing = nil
+			} cancel: { editing = nil }
+		}
+	}
+
+	private func edit(_ config: AIProviderConfig, isNew: Bool) {
+		keyText = ai.apiKey(for: config.id)
+		editingIsNew = isNew
+		editing = config
 	}
 }
 

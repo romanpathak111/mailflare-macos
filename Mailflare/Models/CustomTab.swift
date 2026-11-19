@@ -144,7 +144,7 @@ struct CustomTab: Identifiable, Codable, Hashable {
 	}
 
 	/// Today is the one tab that is always there and cannot be changed: unread mail received today.
-	static let today = CustomTab(id: "today", name: "Today", icon: AppIcon.smartMailbox.rawValue, matchAll: true,
+	static let today = CustomTab(id: "today", name: "Unread Today", icon: AppIcon.smartMailbox.rawValue, matchAll: true,
 								 rules: [Rule(kind: .unread), .received(days: 1)])
 
 	var isBuiltIn: Bool { id == Self.today.id }

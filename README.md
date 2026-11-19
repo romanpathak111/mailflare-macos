@@ -17,6 +17,7 @@ This is the Mac app for [Mailflare](https://github.com/hieunc229/mailflare), the
 - **Writing.** Rich text, Cc and Bcc, drafts, reply, forward, undo and redo, and templates. Quick reply from under the message.
 - **Attachments.** Drop or paste files and screenshots. Preview an image and crop it, add text and arrows, or hide private details before you send.
 - **AI Writer.** Tell the AI what to write, and it writes the email for you.
+- **Statuses.** Mark a conversation Needs reply, Waiting on others, Can archive or Long-term value. Today shows what needs you, and the Status board lays every conversation out by status, with drag and drop.
 - **Organize.** Archive, delete, mark as junk, flag, move to folders, and unsubscribe from newsletters.
 - **Search.** Search from the title bar across senders, subjects and the text of every message kept on your Mac, and on the server for older mail. Filter by unread or flagged.
 - **Fast.** The next message is read ahead before you open it, IMAP accounts get new mail the moment it arrives, and Settings → Storage sets how much of each folder stays on your Mac.
@@ -31,6 +32,7 @@ This is the Mac app for [Mailflare](https://github.com/hieunc229/mailflare), the
 | Shortcut | Action |
 | --- | --- |
 | `⌘N` | New message |
+| `⌘1` / `⌘2` / `⌘3` | Today / Status board / Inbox |
 | `⌘,` | Settings |
 | `⌘R` / `⇧⌘R` | Reply / Reply all |
 | `⇧⌘F` | Forward |
@@ -56,7 +58,7 @@ The AI sends the mail it reads to your chosen provider. Use Ollama to keep every
 
 ## Changelog
 
-Release notes for every version are in [`changelog/`](changelog). Latest: [1.7](changelog/1.7.md).
+Release notes for every version are in [`changelog/`](changelog). Latest: [1.8](changelog/1.8.md).
 
 ## Requirements
 

@@ -3,7 +3,7 @@ import ServiceManagement
 
 /// The pages of the Settings view, listed in the sidebar in this order.
 enum SettingsPage: String, CaseIterable, Identifiable {
-	case general, accounts, ai, mcp, notifications, license, support, about
+	case general, accounts, assistant, ai, mcp, notifications, license, support, about
 
 	var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 		case .general: "Preferences"
 		case .notifications: "Notifications"
 		case .accounts: "Accounts"
+		case .assistant: "Assistant"
 		case .ai: "AI Providers"
 		case .mcp: "MCP Credentials"
 		case .license: "License"
@@ -25,6 +26,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 		case .general: .settings
 		case .notifications: .bell
 		case .accounts: .allInboxes
+		case .assistant: .aiContent
 		case .ai: .sparkles
 		case .mcp: .link
 		case .license: .vip
@@ -49,10 +51,29 @@ enum SettingsSection: CaseIterable, Identifiable {
 
 	var pages: [SettingsPage] {
 		switch self {
-		case .general: [.general, .accounts, .notifications, .ai, .mcp]
+		case .general: [.general, .accounts, .notifications, .assistant, .ai, .mcp]
 		case .about: [.license, .support, .about]
 		}
 	}
+}
+
+/// What the assistant may do with statuses; the Assistant page sets each.
+enum AssistantSettings {
+	static let suggestStatusKey = "assistant.suggestStatus"
+	static let draftRepliesKey = "assistant.draftReplies"
+	static let todayBriefKey = "assistant.todayBrief"
+	static let autoArchiveKey = "assistant.autoArchive"
+
+	private static func flag(_ key: String, default value: Bool) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? value }
+
+	/// Suggest a status for the open message and when sorting new mail.
+	static var suggestStatus: Bool { flag(suggestStatusKey, default: true) }
+	/// Offer to draft a reply for conversations that need one.
+	static var draftReplies: Bool { flag(draftRepliesKey, default: true) }
+	/// Show the assistant's card on Today.
+	static var todayBrief: Bool { flag(todayBriefKey, default: true) }
+	/// Move Can archive conversations to Archive as soon as they are sorted.
+	static var autoArchive: Bool { flag(autoArchiveKey, default: false) }
 }
 
 /// Keys and defaults of the preferences that code outside the Settings view reads.

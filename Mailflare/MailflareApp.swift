@@ -35,6 +35,14 @@ struct MailflareApp: App {
 				Button("Add Account…") { store.showAddAccount = true }
 					.disabled(store.phase != .ready)
 			}
+			CommandMenu("Go") {
+				Button("Today") { store.openScreen(.home) }
+					.keyboardShortcut("1").disabled(store.phase != .ready)
+				Button("Status Board") { store.openScreen(.board) }
+					.keyboardShortcut("2").disabled(store.phase != .ready)
+				Button("Inbox") { store.openTopItem(.allInboxes) }
+					.keyboardShortcut("3").disabled(store.phase != .ready)
+			}
 			CommandGroup(replacing: .appSettings) {
 				Button("Settings…") { store.settingsPage = store.settingsPage ?? .general }
 					.keyboardShortcut(",")

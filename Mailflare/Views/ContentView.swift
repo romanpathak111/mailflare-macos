@@ -128,8 +128,8 @@ struct ContentView: View {
 		.overlay(alignment: .topLeading) { sidebarDrawer }
 		.overlay(alignment: .topTrailing) { floatingChat }
 		.overlay(alignment: .topLeading) { titlebarLeading }
-		.overlay(alignment: .topLeading) { if store.settingsPage == nil && !store.chatFillsWindow && (narrowChat || !(layout.single && store.selectedID != nil)) { titlebarSearch } }
-		.overlay(alignment: .topTrailing) { if store.settingsPage == nil && !store.chatFillsWindow { titlebarTrailing } }
+		.overlay(alignment: .topLeading) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow && (narrowChat || !(layout.single && store.selectedID != nil)) { titlebarSearch } }
+		.overlay(alignment: .topTrailing) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow { titlebarTrailing } }
 		.overlay(alignment: .topTrailing) { if store.ai.isConfigured { assistantToggle } }
 		.animation(.easeInOut(duration: 0.2), value: store.chatOpen)
 		.animation(.easeInOut(duration: 0.28), value: store.chatExpanded)
@@ -170,6 +170,7 @@ struct ContentView: View {
 		}
 		.onChange(of: store.sidebar) { _, _ in store.sidebarChanged() }
 		.onChange(of: store.unreadOnly) { _, _ in store.reload() }
+		.onChange(of: store.statusFilter) { _, _ in store.reload() }
 		.onChange(of: store.searchText) { _, _ in store.searchChanged() }
 		.overlay(alignment: .top) {
 			if let banner = store.banner {
@@ -310,6 +311,10 @@ struct ContentView: View {
 		Group {
 			if let page = store.settingsPage {
 				SettingsView(page: page)
+			} else if store.screen == .home {
+				TodayView()
+			} else if store.screen == .board {
+				StatusBoardView()
 			} else if layout.single {
 				// One column: the list until a message is chosen, then the message.
 				if store.selectedID == nil { MessageListView() } else { ReaderView() }
@@ -361,7 +366,7 @@ struct ContentView: View {
 			if warns { warning.offset(x: warningX) }
 			toggle.offset(x: toggleX)
 			// Narrow windows show one column at a time; this goes from the message back to the list.
-			if layout.single && !narrowChat && store.selectedID != nil && store.settingsPage == nil {
+			if layout.single && !narrowChat && store.selectedID != nil && store.settingsPage == nil && store.screen == .mail {
 				TitlebarIconButton(icon: .arrowLeft, help: "Back to messages") { store.select(nil) }
 					.offset(x: backX)
 			}
@@ -463,7 +468,7 @@ struct ContentView: View {
 	private func headerActionsWidth(_ shown: Set<HeaderAction>, isDraft: Bool) -> CGFloat {
 		func count(_ actions: [HeaderAction]) -> Int { actions.filter(shown.contains).count }
 		let first = count([.reply, .replyAll, .forward]), second = count([.archive, .trash, .junk])
-		let buttons = first + second + count([.summarize, .colors]) + (isDraft ? 0 : 2)
+		let buttons = first + second + count([.summarize, .colors]) + (isDraft ? 0 : 3)
 		let separators = 1 + (first > 0 ? 1 : 0) + (second > 0 && !isDraft ? 1 : 0)
 		let items = buttons + separators
 		return CGFloat(buttons) * TitlebarIconButton.size + CGFloat(separators) * 17 + CGFloat(max(items - 1, 0)) * 8
@@ -552,6 +557,7 @@ struct ContentView: View {
 							isActive: !store.adaptColors
 						) { store.toggleAdaptColors() }
 					}
+					statusMenu(message)
 					flagMenu(message)
 					moreMenu(message, role: role, hidden: hidden)
 				}
@@ -631,6 +637,24 @@ struct ContentView: View {
 		}
 		.clickAway(isActive: moreOpen) { withAnimation(.snappy(duration: 0.2)) { moreOpen = false } }
 		.onChange(of: message.id) { _, _ in moreOpen = false }
+	}
+
+	/// The conversation's status, from the title bar: the four statuses, the current one checked.
+	private func statusMenu(_ message: MessageSummary) -> some View {
+		let current = store.status(of: message.id)
+		return TitlebarMenu(icon: .label, help: current.map { "Status: \($0.title)" } ?? "Set status", tint: current?.dot) {
+			ForEach(ThreadStatus.allCases) { status in
+				Button {
+					store.setStatus(status, for: message.id)
+				} label: {
+					Text(current == status ? "✓  \(status.title)" : status.title)
+				}
+			}
+			if current != nil {
+				Divider()
+				Button("Clear Status") { store.setStatus(nil, for: message.id) }
+			}
+		}
 	}
 
 	private func flagMenu(_ message: MessageSummary?) -> some View {

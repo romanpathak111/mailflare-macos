@@ -10,6 +10,7 @@ struct MessageListView: View {
 			header
 				// Above the list, so the filter button's tooltip is not covered by it.
 				.zIndex(1)
+			if store.sidebar == .allInboxes { StatusFilterBar() }
 			Rectangle().fill(AppTheme.cardStroke).frame(height: 1)
 			list
 		}
@@ -72,7 +73,7 @@ struct MessageListView: View {
 	private static let menuFont = Font.system(size: Typography.baseSize - 1)
 	private static let menuWidth: CGFloat = 168
 	/// The menu's size before it is measured. Every menu has the same rows, so one measure serves all.
-	private static let menuHeight: CGFloat = 200
+	private static let menuHeight: CGFloat = 330
 	@State private var menuSize: CGSize?
 
 	/// Only the rows near the viewport exist as views; the rest are replaced by spacers of the same
@@ -261,6 +262,9 @@ struct MessageListView: View {
 			DropdownRow(label: "Reply", icon: .reply, isEnabled: !many, labelFont: font, verticalPadding: 3.5) { choose { store.reply(to: m.id, all: false) } }
 			DropdownRow(label: "Forward", icon: .forward, isEnabled: !many, labelFont: font, verticalPadding: 3.5) { choose { store.forward(m.id) } }
 			DropdownDivider()
+			DropdownLabel(title: "Status")
+			StatusMenuRows(ids: ids, font: font, verticalPadding: 3.5, choose: { action in choose(action) })
+			DropdownDivider()
 			let allFlagged = picked.allSatisfy(\.flagged)
 			let allRead = picked.allSatisfy(\.seen)
 			DropdownRow(label: allFlagged ? "Remove Flag" : "Flag", icon: allFlagged ? .unflag : .flag, labelFont: font, verticalPadding: 3.5) { choose { store.toggleFlag(ids: ids) } }
@@ -417,6 +421,10 @@ struct MessageRow: View {
 				}
 				Text(MailDate.list(message.date))
 					.font(Typography.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+				// The conversation's status, as the same dot the sidebar and the board use.
+				if let status = store.status(of: message.id) {
+					StatusDot(status: status, size: 8).help(status.title)
+				}
 				// In a unified list, the inbox the message is in follows its date.
 				if let sourceAccount {
 					ProfileAvatar(key: AvatarCache.key(account: sourceAccount), name: store.accountList.first { $0.id == sourceAccount }.map(store.accountName) ?? "?", size: 15)
@@ -575,5 +583,35 @@ final class RowMetrics {
 		let count = box.height > Self.noticeLine * 1.5 ? 2 : 1
 		lines[message.id] = (text, count)
 		return count
+	}
+}
+
+
+/// The inbox's filter by status: All, Needs reply, Waiting and Unsorted, as pills under the title.
+struct StatusFilterBar: View {
+	@Environment(MailStore.self) private var store
+
+	var body: some View {
+		HStack(spacing: 6) {
+			ForEach(StatusFilter.allCases) { filter in
+				let selected = store.statusFilter == filter
+				Button {
+					store.statusFilter = filter
+				} label: {
+					HStack(spacing: 5) {
+						if let status = filter.status { StatusDot(status: status, size: 6) }
+						Text(filter.title).font(Typography.meta.weight(.medium)).lineLimit(1)
+					}
+					.foregroundStyle(selected ? AppTheme.prominentPillText : Color.primary)
+					.padding(.horizontal, 10).padding(.vertical, 5)
+					.background(Capsule().fill(selected ? AppTheme.prominentPillFill : AppTheme.composerContextFill))
+					.contentShape(Capsule())
+				}
+				.buttonStyle(.plain)
+			}
+			Spacer(minLength: 0)
+		}
+		.padding(.horizontal, 16).padding(.bottom, 10)
+		.frame(maxWidth: .infinity, alignment: .leading)
 	}
 }

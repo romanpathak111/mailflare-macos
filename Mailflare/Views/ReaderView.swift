@@ -95,6 +95,7 @@ private struct MessageDetail: View {
 			VStack(alignment: .leading, spacing: 0) {
 				VStack(alignment: .leading, spacing: 12) {
 					header
+					if store.role(of: message) != "drafts" { StatusPicker(message: message) }
 					if let summary { summaryCard(summary) }
 					if let error = store.summaryError { Text(error).font(Typography.meta).foregroundStyle(.orange) }
 				}

@@ -66,6 +66,7 @@ struct SidebarView: View {
 				.allowsHitTesting(!switcherOpen)
 			ScrollView {
 				VStack(alignment: .leading, spacing: 2) {
+					folioList
 					topList
 					if store.showsAllInboxes { accountsSection } else { singleSections }
 				}
@@ -302,6 +303,29 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 
 	private func closeSwitcher() { withAnimation(.snappy(duration: 0.22)) { switcherOpen = false } }
 
+	// MARK: Today, the Status board and the statuses
+
+	/// Today and the Status board lead the sidebar, then the four statuses with how many conversations
+	/// each holds. Statuses are the way into the board, one column at a time.
+	private var folioList: some View {
+		VStack(alignment: .leading, spacing: 2) {
+			SidebarRow(icon: .calendar, title: "Today", badge: 0, tint: nil,
+					   isSelected: store.settingsPage == nil && store.screen == .home) { store.openScreen(.home) }
+			SidebarRow(icon: .board, title: "Status board", badge: 0, tint: nil,
+					   isSelected: store.settingsPage == nil && store.screen == .board && store.boardFocus == nil) { store.openScreen(.board) }
+			heading("statuses", "Status")
+			if !collapsed("statuses") {
+				ForEach(ThreadStatus.allCases) { status in
+					StatusSidebarRow(status: status, count: store.statuses.count(status),
+									 isSelected: store.settingsPage == nil && store.screen == .board && store.boardFocus == status) {
+						store.openScreen(.board, status: status)
+					}
+				}
+			}
+		}
+		.padding(.top, 4)
+	}
+
 	// MARK: Items and sections
 
 	private func collapsed(_ id: String) -> Bool { store.collapsedSections.contains(id) }
@@ -333,7 +357,7 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 				let title = kind == .inbox ? (store.showsAllInboxes ? "Inboxes" : "Inbox") : kind.title
 				let badge = kind == .inbox || kind == .today ? store.unreadCount(for: kind.item) : 0
 				SidebarRow(icon: kind.icon, title: title, badge: badge, tint: nil,
-						   isSelected: store.settingsPage == nil && store.focus == nil && store.sidebar == kind.item) {
+						   isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == nil && store.sidebar == kind.item) {
 					store.openTopItem(kind.item)
 				}
 				if kind == .today { customTabRows }
@@ -347,7 +371,7 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 		ForEach(store.customTabs) { tab in
 			let item = SidebarItem.customTab(tab.id)
 			SidebarRow(icon: tab.appIcon, title: tab.name, badge: store.unreadCount(for: item), tint: nil,
-					   isSelected: store.settingsPage == nil && store.focus == nil && store.sidebar == item) {
+					   isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == nil && store.sidebar == item) {
 				store.openTopItem(item)
 			}
 		}
@@ -364,7 +388,7 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 				SidebarRow(
 					icon: kind.icon, title: kind == .inbox ? "Inbox" : kind.title,
 					badge: kind == .inbox ? store.unreadCount(accountID: accountID, inbox: inbox) : 0, tint: nil,
-					isSelected: store.settingsPage == nil && store.focus == selectedFocus && store.sidebar == kind.item
+					isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == selectedFocus && store.sidebar == kind.item
 				) {
 					if let group { store.openGroupItem(kind.item, in: group) } else { store.openTopItem(kind.item) }
 				}
@@ -378,8 +402,8 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 			? .mailbox(ViewMessageID.make(account: group!.account.id, message: box.id)) : .mailbox(box.id)
 		let gmail = (group?.account ?? store.account).map(store.isGmailAccount) ?? false
 		return SidebarRow(
-			icon: gmail ? .label : .folder, title: box.name, badge: Int(box.unreadEmails), tint: nil,
-			isSelected: store.settingsPage == nil && store.focus == group?.focus && store.sidebar == item
+			icon: gmail ? .label : .folder, title: box.name, badge: Int(box.unreadEmails), tint: store.folderColors.color(for: box.id),
+			isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == group?.focus && store.sidebar == item
 		) {
 			if let group { store.openGroupItem(item, in: group) } else { store.openTopItem(item) }
 		}
@@ -676,6 +700,36 @@ private struct SidebarRow: View {
 	}
 }
 
+
+/// One status in the sidebar: its dot, its name and how many conversations have it.
+private struct StatusSidebarRow: View {
+	var status: ThreadStatus
+	var count: Int
+	var isSelected: Bool
+	var action: () -> Void
+
+	@State private var isHovering = false
+
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: 10) {
+				StatusDot(status: status, size: 9).frame(width: 16)
+				Text(status.title).font(Typography.body).lineLimit(1).foregroundStyle(.primary.opacity(0.94))
+				Spacer(minLength: 4)
+				if count > 0 { CountBadge(count: count) }
+			}
+			.padding(.horizontal, 10)
+			.padding(.vertical, 7)
+			.background(
+				RoundedRectangle(cornerRadius: 8, style: .continuous)
+					.fill(isSelected ? AppTheme.railSelection : (isHovering ? AppTheme.rowHighlight : .clear))
+			)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.onHover { isHovering = $0 }
+	}
+}
 
 /// One line of the account switcher: pictures, name and address, unread count, and a check when chosen.
 private struct SwitcherRow<Leading: View, Text_: View>: View {

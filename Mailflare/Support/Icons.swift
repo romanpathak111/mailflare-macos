@@ -8,7 +8,7 @@ enum AppIcon: String {
 	case moreDown, search, allInboxes, vip, remind, drafts, sent, smartMailbox, inbox
 	case attachment, summarize, aiContent, chevronRight, chevronDown, clock, close, send, add, addCircle, check, signOut, appearance, settings, info, more, bell
 	case crown, arrowLeft, sparkles, edit, colors, download, copy, label, unsubscribe, block, sourceCode, cancel, minimize, bold, italic, underline, strikethrough, bulletList, numberList, quote, link, clearFormat, undo, redo, support, markRead, markUnread, unflag
-	case notificationOff, calendar, cart, money, person, work, travel, home, bookmark, parcel, refresh, expand, shrink
+	case notificationOff, calendar, cart, money, person, work, travel, home, bookmark, parcel, refresh, expand, shrink, board
 
 	/// The image in `Assets.xcassets/Icons`.
 	var assetName: String { "Icons/" + fileName }
@@ -93,6 +93,8 @@ enum AppIcon: String {
 		case .refresh: "refresh01"
 		case .expand: "arrow-expand"
 		case .shrink: "arrow-shrink"
+		// Drawn from an SF Symbol: see `HIcon`.
+		case .board: "board"
 		}
 	}
 }
@@ -107,10 +109,16 @@ struct HIcon: View {
 	}
 
 	var body: some View {
-		Image(icon.assetName)
-			.resizable()
-			.renderingMode(.template)
-			.scaledToFit()
-			.frame(width: size, height: size)
+		if icon == .board {
+			Image(systemName: "rectangle.split.3x1")
+				.font(.system(size: size * 0.92, weight: .regular))
+				.frame(width: size, height: size)
+		} else {
+			Image(icon.assetName)
+				.resizable()
+				.renderingMode(.template)
+				.scaledToFit()
+				.frame(width: size, height: size)
+		}
 	}
 }

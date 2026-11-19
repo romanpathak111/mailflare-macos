@@ -7,7 +7,7 @@ enum UnifiedViewKind: String, CaseIterable, Identifiable {
 	var id: String { rawValue }
 	var title: String {
 		switch self {
-		case .today: "Today"
+		case .today: "Unread Today"
 		case .inbox: "Inboxes"
 		case .drafts: "Drafts"
 		case .sent: "Sent"

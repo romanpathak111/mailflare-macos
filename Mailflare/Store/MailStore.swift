@@ -51,6 +51,18 @@ final class MailStore {
 	var displayBrandName: String { license.brandName ?? brandName }
 	let license = LicenseManager()
 	let ai = AISettings()
+	/// Statuses given to conversations (Needs reply, Waiting and the rest), kept on this Mac.
+	let statuses = StatusStore()
+	/// The colour of each folder in the sidebar and Settings.
+	let folderColors = FolderColors()
+	/// The full-width screen in view: Today, the Status board, or the mail list and reader.
+	var screen: AppScreen = .home
+	/// The inbox filter by status, in the message list's header.
+	var statusFilter: StatusFilter = .all
+	/// The board column a sidebar status row asked for.
+	var boardFocus: ThreadStatus?
+	/// "Sort unsorted mail" is running.
+	var isSortingStatuses = false
 	/// Remote MCP servers the assistant can use, with their secrets in the Keychain.
 	let mcp = MCPStore()
 	let chat = AIChatModel()
@@ -196,6 +208,7 @@ final class MailStore {
 	}
 
 	private func go(to item: SidebarItem) {
+		screen = .mail
 		sidebar = item
 		searchText = ""
 		selectedID = nil; detail = nil
@@ -600,13 +613,14 @@ final class MailStore {
 		try? core?.signOut(accountId: target.id)
 		profiles.forget(target.id)
 		quickReplies.forget(account: target.id)
+		statuses.forget(account: target.id)
 		accountList = (try? core?.accounts()) ?? accountList.filter { $0.id != target.id }
 		license.retain(accountIDs: accountList.map(\.id))
 	}
 
 	func signOut(notice: String? = nil) {
 		stopPolling()
-		if let id = account?.id { pushed.remove(id); try? core?.signOut(accountId: id); profiles.forget(id); quickReplies.forget(account: id) }
+		if let id = account?.id { pushed.remove(id); try? core?.signOut(accountId: id); profiles.forget(id); quickReplies.forget(account: id); statuses.forget(account: id) }
 		account = nil; mailboxes = []; identities = []; messages = []; detail = nil; selectedID = nil
 		compose = nil; minimizedDraft = nil; searchText = ""; settingsPage = nil
 		chat.reset()
@@ -754,6 +768,7 @@ final class MailStore {
 
 	func selectView(_ id: String) {
 		guard inboxViews.contains(where: { $0.id == id }) else { return }
+		screen = .mail
 		activeViewID = id
 		focus = nil
 		settingsPage = nil
@@ -766,6 +781,7 @@ final class MailStore {
 
 	/// Opens `item` across every account (the sidebar's Unified section and the switcher's Unified Inbox).
 	func selectAllAccounts(_ item: SidebarItem = .allInboxes) {
+		screen = .mail
 		activeViewID = Self.allAccountsID
 		focus = nil
 		settingsPage = nil
@@ -779,6 +795,7 @@ final class MailStore {
 	/// Opens `item` in one account (all of its inboxes), switching to the account first when needed.
 	func openAccountItem(_ item: SidebarItem, accountID: String, inbox: Mailbox? = nil) {
 		settingsPage = nil
+		screen = .mail
 		if accountID != account?.id, let target = accountList.first(where: { $0.id == accountID }) { switchAccount(target) }
 		setScope(inbox?.id)
 		sidebar = item
@@ -959,6 +976,8 @@ final class MailStore {
 		NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
 		guard phase == .ready else { return }
 		settingsPage = nil
+		screen = .mail
+		statusFilter = .all
 		if accountID != account?.id, let target = accountList.first(where: { $0.id == accountID }) { switchAccount(target) }
 		searchText = ""; unreadOnly = false
 		sidebar = .allInboxes
@@ -1213,6 +1232,7 @@ final class MailStore {
 
 	/// Switches to `inbox` (or all of the account's inboxes), changing account first when needed.
 	func selectInbox(_ inbox: Mailbox?, accountID: String) {
+		screen = .mail
 		if accountID != account?.id, let target = accountList.first(where: { $0.id == accountID }) { switchAccount(target) }
 		setScope(inbox?.id)
 	}
@@ -1386,7 +1406,7 @@ final class MailStore {
 			case .allTrash: "Trash"
 			case .allArchive: "Archive"
 			case .flagged: "Starred"
-			case .smartToday: "Today"
+			case .smartToday: "Unread Today"
 			case .mailbox(let id): mailbox(id)?.name
 			case .allInboxes: focus == nil ? nil : "Inbox"
 			case .customTab(let id): customTab(id)?.name
@@ -1409,7 +1429,7 @@ final class MailStore {
 		case .allJunk: return scopedTitle("Spam", all: "Spam")
 		case .allTrash: return scopedTitle("Trash", all: "Trash")
 		case .allArchive: return scopedTitle("Archive", all: "Archive")
-		case .smartToday: return "Today"
+		case .smartToday: return "Unread Today"
 		case .customTab(let id): return customTab(id)?.name ?? "Mailflare"
 		}
 	}
@@ -1585,6 +1605,7 @@ final class MailStore {
 		}
 		if unreadOnly { list = list.filter { !$0.seen } }
 		list = keepingOpened(list)
+		list = applyStatusFilter(list)
 		if messages != list { messages = list }
 		let newTotal = count ?? list.count
 		if total != newTotal { total = newTotal }
@@ -1709,6 +1730,7 @@ final class MailStore {
 		list.sort { $0.receivedAt > $1.receivedAt }
 		if !filtered { list = Array(list.prefix(pageLimit)) }
 		list = keepingOpened(list)
+		list = applyStatusFilter(list)
 		if messages != list { messages = list }
 		let newTotal = filtered ? list.count : count
 		if total != newTotal { total = newTotal }
@@ -1929,6 +1951,126 @@ final class MailStore {
 		let target = detail.replyTo.isEmpty ? [detail.summary.fromEmail] : detail.replyTo.map(\.email)
 		let everyone = target + (detail.to + detail.cc).map(\.email)
 		return Set(everyone.map { $0.lowercased() }).subtracting(mine).count > 1
+	}
+
+	// MARK: Statuses
+
+	/// The status of a listed message's conversation, if it has one.
+	func status(of id: String) -> ThreadStatus? {
+		let (acct, raw) = owner(of: id)
+		return statuses.status(account: acct, message: raw)
+	}
+
+	/// Shows Today or the Status board over the mail; a status brings that column forward.
+	func openScreen(_ target: AppScreen, status: ThreadStatus? = nil) {
+		settingsPage = nil
+		boardFocus = status
+		screen = target
+	}
+
+	func setStatus(_ status: ThreadStatus?, for id: String) { setStatus(status, for: [id]) }
+
+	/// Gives the messages a status, or takes theirs away with nil.
+	func setStatus(_ status: ThreadStatus?, for ids: [String], ask: String? = nil) {
+		for id in ids {
+			let (acct, raw) = owner(of: id)
+			if let status {
+				let summary = messages.first { $0.id == id } ?? (detail?.summary.id == id ? detail?.summary : nil)
+				statuses.set(status, account: acct, message: raw, summary: summary, ask: ask)
+			} else {
+				statuses.remove(account: acct, message: raw)
+			}
+		}
+		if statusFilter != .all { reload() }
+	}
+
+	/// The id a record's message is listed under, which every action accepts.
+	private func listedID(_ record: ThreadRecord) -> String { ViewMessageID.make(account: record.accountID, message: record.messageID) }
+
+	/// Moves a record's conversation to a status from the board.
+	func setStatus(_ status: ThreadStatus, for record: ThreadRecord) {
+		statuses.set(status, account: record.accountID, message: record.messageID, summary: nil, ask: record.ask)
+	}
+
+	/// Opens a conversation from Today or the board in the mail view.
+	func open(_ record: ThreadRecord) { openMessage(accountID: record.accountID, messageID: record.messageID) }
+
+	/// Opens the conversation, then the composer for a reply to it.
+	func reply(to record: ThreadRecord) {
+		open(record)
+		reply(to: listedID(record), all: false)
+	}
+
+	/// Archives the conversations and drops their statuses: archived mail is done.
+	func archive(records: [ThreadRecord]) {
+		guard !records.isEmpty else { return }
+		archive(ids: records.map(listedID))
+		for record in records { statuses.remove(account: record.accountID, message: record.messageID) }
+		showToast("Archived \(records.count) conversation\(records.count == 1 ? "" : "s")", icon: .archive)
+	}
+
+	/// A reply to this message went out: a conversation that needed one now waits for the other person.
+	func markAnswered(_ id: String) {
+		if status(of: id) == .needsReply { setStatus(.waiting, for: id) }
+	}
+
+	/// The reader's statuses stay put when the list is filtered: only the list narrows.
+	private func applyStatusFilter(_ list: [MessageSummary]) -> [MessageSummary] {
+		guard sidebar == .allInboxes else { return list }
+		switch statusFilter {
+		case .all: return list
+		case .needsReply, .waiting: return list.filter { status(of: $0.id) == statusFilter.status }
+		case .unsorted: return list.filter { status(of: $0.id) == nil }
+		}
+	}
+
+	/// Suggests statuses for inbox mail that has none: with a provider connected the model reads the
+	/// mail, otherwise plain rules do. Nothing is overwritten, and what is suggested is given at once;
+	/// the status picker changes any of it.
+	func sortUnsortedMail() {
+		guard !isSortingStatuses, core != nil else { return }
+		isSortingStatuses = true
+		let client = ai.client
+		let accounts = accountList.filter { unifiedIncludes($0.id) }
+		Task { [weak self] in
+			guard let self else { return }
+			var items: [(account: String, summary: MessageSummary)] = []
+			for account in accounts {
+				guard let page = try? self.fetch(account.id, .role(role: "inbox"), limit: 60) else { continue }
+				for summary in page.list where self.statuses.status(account: account.id, message: summary.id) == nil && !summary.flagged {
+					items.append((account.id, summary))
+				}
+			}
+			items = Array(items.sorted { $0.summary.receivedAt > $1.summary.receivedAt }.prefix(40))
+			// The model is given plain numbers to answer with: a key with account and message ids in it could come back mangled.
+			func item(_ index: Int) -> StatusAssistant.Item {
+				let summary = items[index].summary
+				return StatusAssistant.Item(id: String(index), from: summary.sender.formatted, subject: summary.subject, preview: PreviewText.plain(summary.preview))
+			}
+			var suggestions: [String: StatusAssistant.Suggestion] = [:]
+			if let client {
+				for start in stride(from: 0, to: items.count, by: 20) {
+					do {
+						let sorted = try await StatusAssistant.classify(client: client, items: (start..<min(start + 20, items.count)).map(item))
+						suggestions.merge(sorted) { _, new in new }
+					} catch { self.banner = "Sorting stopped: \(describe(error))"; break }
+				}
+			}
+			var given = 0
+			var archivable: [ThreadRecord] = []
+			for (index, pair) in items.enumerated() {
+				guard let suggestion = suggestions[String(index)] ?? StatusAssistant.guess(item(index)) else { continue }
+				self.statuses.set(suggestion.status, account: pair.account, message: pair.summary.id, summary: pair.summary, ask: suggestion.ask)
+				if suggestion.status == .canArchive, let record = self.statuses.record(account: pair.account, message: pair.summary.id) { archivable.append(record) }
+				given += 1
+			}
+			// Only when the user turned it on: the sorted-away mail goes straight to Archive.
+			if AssistantSettings.autoArchive, !archivable.isEmpty { self.archive(records: archivable) }
+			self.isSortingStatuses = false
+			self.showToast(given == 0 ? "Nothing to sort" : "Sorted \(given) conversation\(given == 1 ? "" : "s")",
+						   detail: given == 0 ? "No unsorted mail gave a clear signal." : (client == nil ? "Sorted by rules. Connect an assistant for better results." : ""), icon: .sparkles)
+			if self.statusFilter != .all { self.reload() }
+		}
 	}
 
 	// MARK: Selection and body
@@ -2251,7 +2393,12 @@ final class MailStore {
 		guard let core else { return }
 		let (acct, raw) = owner(of: id)
 		Task {
-			do { compose = draft(from: try await make(core, acct, raw), title: title, accountID: acct) } catch { banner = describe(error) }
+			do {
+				var d = draft(from: try await make(core, acct, raw), title: title, accountID: acct)
+				// The message a reply answers: once it is sent, its conversation moves from Needs reply to Waiting.
+				if title.hasPrefix("Reply") { d.answeringID = id }
+				compose = d
+			} catch { banner = describe(error) }
 		}
 	}
 
@@ -2281,7 +2428,9 @@ final class MailStore {
 		let message = try outgoing(draft)
 		if send, message.to.isEmpty { throw CoreError.InvalidInput(message: "Add at least one valid recipient.") }
 		compose = nil
-		enqueue(message, accountID: draft.accountID ?? accountID, send: send) { [weak self] in
+		enqueue(message, accountID: draft.accountID ?? accountID, send: send, onSuccess: { [weak self] in
+			if send, let answered = draft.answeringID { self?.markAnswered(answered) }
+		}) { [weak self] in
 			guard let self else { return }
 			// Back where it was, unless another message took the composer meanwhile.
 			if compose == nil { compose = draft } else if minimizedDraft == nil { minimizedDraft = draft }
@@ -2387,6 +2536,7 @@ final class MailStore {
 					// Queued, not sent yet: the box keeps its spinner until the core reports the reply out.
 					let finish: () -> Void = { [weak self] in
 						guard let self else { return }
+						markAnswered(id)
 						quickReplies.set("", for: key)
 						withAnimation(.snappy(duration: 0.35)) {
 							self.sentReplies[id, default: []].append(sent)
