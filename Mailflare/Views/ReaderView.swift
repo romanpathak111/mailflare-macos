@@ -216,10 +216,8 @@ private struct MessageDetail: View {
 					if store.role(of: message) == "drafts" {
 						Button("Edit Draft") { store.editDraft(message.id) }.buttonStyle(.pill)
 					}
-					if message.hasAttachment { HIcon(.attachment, size: 13).foregroundStyle(.secondary) }
-					if message.flagged { HIcon(.flag, size: 13).foregroundStyle(.orange) }
-					Text(MailDate.full(message.date))
-						.font(Typography.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+					// Reply, file and flag, beside who the message is from.
+					MessageActionBar(message: message).layoutPriority(1)
 				}
 				HStack(alignment: .firstTextBaseline, spacing: 6) {
 					if store.detail == nil {
@@ -235,7 +233,11 @@ private struct MessageDetail: View {
 							.buttonStyle(.light).font(Typography.notice).foregroundStyle(Color.accentColor)
 							.fixedSize()
 					}
-					Spacer(minLength: 0)
+					Spacer(minLength: 8)
+					if message.hasAttachment { HIcon(.attachment, size: 13).foregroundStyle(.secondary) }
+					if message.flagged { HIcon(.flag, size: 13).foregroundStyle(.orange) }
+					Text(MailDate.full(message.date))
+						.font(Typography.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
 				}
 				// Cc has its own line. (The core does not return Bcc for received mail.)
 				if !cc.isEmpty {
@@ -272,6 +274,72 @@ private struct MessageDetail: View {
 	/// "To: Name <address>, …" or "Cc: …", every recipient with its address.
 	private func recipientLine(_ label: String, _ people: [EmailAddress]) -> String {
 		"\(label): " + people.map(\.formatted).joined(separator: ", ")
+	}
+}
+
+/// The message's actions in the sender row: reply and forward, archive, trash and spam, summary,
+/// flag and More. Their keyboard shortcuts stay with the window (ContentView), so they work wherever
+/// the focus is.
+private struct MessageActionBar: View {
+	@Environment(MailStore.self) private var store
+	@Environment(\.colorScheme) private var colorScheme
+	let message: MessageSummary
+
+	private var role: String? { store.role(of: message) }
+
+	var body: some View {
+		let isDraft = role == "drafts"
+		HStack(spacing: 2) {
+			if !isDraft {
+				TitlebarIconButton(icon: .reply, help: "Reply (⌘R)") { store.reply(to: message.id, all: false) }
+				if store.canReplyAll {
+					TitlebarIconButton(icon: .replyAll, help: "Reply All (⇧⌘R)") { store.reply(to: message.id, all: true) }
+				}
+				TitlebarIconButton(icon: .forward, help: "Forward (⇧⌘F)") { store.forward(message.id) }
+				divider
+			}
+			if role != "archive" {
+				TitlebarIconButton(icon: .archive, help: "Archive (⌃⌘A)") { store.archive(message.id) }
+			}
+			TitlebarIconButton(icon: .trash, help: "Move to Trash (⌘⌫)") { store.trash(message.id) }
+			if !isDraft && role != "junk" && role != "sent" {
+				TitlebarIconButton(icon: .junk, help: "Move to Spam (⇧⌘J)") { store.junk(message.id) }
+			}
+			if !isDraft {
+				divider
+				if store.ai.isConfigured {
+					TitlebarIconButton(icon: .aiContent, help: store.summarizingID == message.id ? "Summarizing…" : "Summarize with AI",
+									   isEnabled: store.detail?.summary.id == message.id, isLoading: store.summarizingID == message.id) { store.summarizeSelected() }
+				}
+				TitlebarMenu(icon: .flag, help: message.flagged ? "Flagged" : "Flag", tint: message.flagged ? .orange : nil, primaryAction: { store.toggleFlag(message.id) }) {
+					Button(message.flagged ? "Remove Flag" : "Flag") { store.toggleFlag(message.id) }
+					Button(message.seen ? "Mark as Unread" : "Mark as Read") { store.setRead(message.id, !message.seen) }
+					if store.supportsReminders {
+						Divider()
+						Button("Remind Me Tomorrow") { store.remind(message.id, at: Calendar.current.date(byAdding: .day, value: 1, to: .now)) }
+						if store.reminders[message.id] != nil { Button("Clear Reminder") { store.remind(message.id, at: nil) } }
+					}
+				}
+				TitlebarMenu(icon: .more, help: "More") { moreItems }
+			}
+		}
+		.fixedSize()
+	}
+
+	@ViewBuilder
+	private var moreItems: some View {
+		let unsubscribe = store.detail.flatMap { $0.summary.id == message.id ? UnsubscribeLink.find(in: $0.html) : nil }
+		Button("Unsubscribe") { if let unsubscribe { NSWorkspace.shared.open(unsubscribe) } }.disabled(unsubscribe == nil)
+		Button("Block Contact") { store.block(message.sender, messageID: message.id) }
+		Button("Show Original") { store.original = message }
+		if colorScheme == .dark, let html = store.detail.flatMap({ $0.summary.id == message.id ? $0.html : nil }), !MessageAppearance.supportsDark(html) {
+			Divider()
+			Button(store.adaptColors ? "Show Original Colors" : "Adapt Colors to Dark Mode") { store.toggleAdaptColors() }
+		}
+	}
+
+	private var divider: some View {
+		Rectangle().fill(Folio.line).frame(width: 1, height: 16).padding(.horizontal, 6)
 	}
 }
 

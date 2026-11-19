@@ -31,6 +31,8 @@ struct RuleSuggestion: Identifiable, Equatable {
 	var filed: Int
 	/// How many are waiting in the inbox now.
 	var waiting: Int
+	/// Set when the user picked a different folder from the one learned.
+	var changed = false
 	var id: String { "\(accountID)|\(domain)" }
 }
 
@@ -156,7 +158,14 @@ final class Automation {
 											domain: domain, filed: best.value, waiting: waiting))
 			}
 		}
-		ruleSuggestions = Array(found.sorted { $0.waiting * 10 + $0.filed > $1.waiting * 10 + $1.filed }.prefix(6))
+		// A folder the user already picked for a suggestion is kept when the list is worked out again.
+		let picked = Dictionary(ruleSuggestions.filter(\.changed).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+		ruleSuggestions = Array(found.sorted { $0.waiting * 10 + $0.filed > $1.waiting * 10 + $1.filed }.prefix(6)).map { s in
+			guard let p = picked[s.id] else { return s }
+			var kept = s
+			kept.folderID = p.folderID; kept.folderName = p.folderName; kept.changed = true
+			return kept
+		}
 	}
 
 	/// Turns a suggestion into a rule and files the matching inbox mail now.
@@ -167,6 +176,14 @@ final class Automation {
 		ruleSuggestions.removeAll { $0.id == suggestion.id }
 		let moved = applyRules(store, only: rule)
 		store.showToast("Filing @\(suggestion.domain) into \(suggestion.folderName)", detail: moved > 0 ? "Moved \(moved) from the inbox." : "", icon: .folder)
+	}
+
+	/// Points a suggested rule at another folder before it is accepted.
+	func change(_ suggestion: RuleSuggestion, toFolder id: String, name: String) {
+		guard let i = ruleSuggestions.firstIndex(where: { $0.id == suggestion.id }) else { return }
+		ruleSuggestions[i].folderID = id
+		ruleSuggestions[i].folderName = name
+		ruleSuggestions[i].changed = true
 	}
 
 	func dismiss(_ suggestion: RuleSuggestion) {
@@ -228,19 +245,32 @@ final class Automation {
 		}
 	}
 
+	/// Statuses the user picked in place of the suggested ones, before accepting, by suggestion id.
+	var statusChoices: [String: ThreadStatus] = [:]
+
+	/// The status a suggestion will be accepted as: the user's pick, or the assistant's.
+	func status(of item: StatusSuggestion) -> ThreadStatus { statusChoices[item.id] ?? item.suggestion.status }
+
+	/// Changes a suggestion before it is accepted; nothing is applied yet.
+	func choose(_ status: ThreadStatus, for item: StatusSuggestion) {
+		statusChoices[item.id] = status == item.suggestion.status ? nil : status
+	}
+
 	func accept(_ item: StatusSuggestion, as status: ThreadStatus? = nil, store: MailStore) {
 		let s = item.suggestion
-		store.statuses.set(status ?? s.status, account: item.accountID, message: item.summary.id, summary: item.summary, ask: s.ask, due: s.due)
+		defer { statusChoices[item.id] = nil }
+		store.statuses.set(status ?? self.status(of: item), account: item.accountID, message: item.summary.id, summary: item.summary, ask: s.ask, due: s.due)
 		statusSuggestions.removeAll { $0.id == item.id }
 		if store.statusList != nil || store.statusFilter != .all { store.reload() }
 	}
 
 	func acceptAllStatuses(store: MailStore) {
 		let all = statusSuggestions
-		for item in all { accept(item, store: store) }
+		let chosen = all.map { status(of: $0) }
+		for (item, status) in zip(all, chosen) { accept(item, as: status, store: store) }
 		var archivable: [ThreadRecord] = []
 		if AssistantSettings.autoArchive {
-			for item in all where item.suggestion.status == .canArchive {
+			for (item, status) in zip(all, chosen) where status == .canArchive {
 				if let r = store.statuses.record(account: item.accountID, message: item.summary.id) { archivable.append(r) }
 			}
 			if !archivable.isEmpty { store.archive(records: archivable) }
@@ -252,6 +282,7 @@ final class Automation {
 		dismissedStatuses.insert(item.id)
 		UserDefaults.standard.set(Array(dismissedStatuses.suffix(2000)), forKey: "folio.dismissedStatusSuggestions")
 		statusSuggestions.removeAll { $0.id == item.id }
+		statusChoices[item.id] = nil
 	}
 
 	/// Drops the suggestion for a message once it is given a status some other way.

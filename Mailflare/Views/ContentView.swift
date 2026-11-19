@@ -505,7 +505,22 @@ struct ContentView: View {
 	/// The actions that apply to the selected message, on the card's trailing edge, grouped by
 	/// separators. Nothing shows without a selection. As the reader narrows they leave one at a time
 	/// into the More menu, and come back as it widens.
+	/// The message actions sit in the reader beside the sender (MessageActionBar); the title bar
+	/// keeps only their keyboard shortcuts, so they work wherever the focus is.
 	private var titlebarTrailing: some View {
+		let message = store.multiSelection.isEmpty ? store.selectedMessage : nil
+		let role = message.map { store.role(of: $0) } ?? nil
+		let applicable = message.map { applicableActions($0, role: role) } ?? []
+		return ZStack {
+			if let message {
+				ForEach(HeaderAction.allCases.filter(applicable.contains), id: \.self) { hiddenShortcut($0, message: message) }
+			}
+		}
+		.opacity(0).frame(width: 0, height: 0).allowsHitTesting(false)
+	}
+
+	/// The former title-bar action row (before the actions moved beside the sender).
+	private var titlebarTrailingFull: some View {
 		let message = store.multiSelection.isEmpty ? store.selectedMessage : nil
 		let role = message.map { store.role(of: $0) } ?? nil
 		let isDraft = role == "drafts"

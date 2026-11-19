@@ -272,7 +272,7 @@ struct AIMailTools {
 		var result = Self.brief(detail.summary)
 		result["to"] = Addresses.format(detail.to)
 		result["cc"] = Addresses.format(detail.cc)
-		result["body"] = Self.truncate(AIText.plain(fromHTML: detail.html), 12_000)
+		result["body"] = Self.truncate(AIText.plain(fromHTML: detail.html), 20_000)
 		result["attachments"] = detail.attachments.map { ["name": $0.name ?? "attachment", "type": $0.mimeType, "size": $0.size] as [String: Any] }
 		return result
 	}
@@ -564,7 +564,7 @@ struct AIMailTools {
 	}
 
 	private static func truncate(_ text: String, _ limit: Int) -> String {
-		text.count > limit ? String(text.prefix(limit)) + "… [truncated]" : text
+		text.count > limit ? String(text.prefix(limit)) + "… [the rest, \(text.count - limit) characters, is left out]" : text
 	}
 
 	private static func encode(_ object: [String: Any]) -> String {
@@ -580,14 +580,18 @@ enum AIText {
 	/// Readable text for a model: no markup, paragraph breaks kept.
 	static func plain(fromHTML html: String) -> String {
 		var text = html
-		for pattern in ["<style[^>]*>.*?</style>", "<script[^>]*>.*?</script>", "<!--.*?-->"] {
+		// (?s): style blocks, scripts and comments usually span lines; without it their CSS stayed in
+		// the text and filled the length limit before the message itself began.
+		for pattern in ["(?s)<head(\\s[^>]*)?>.*?</head>", "(?s)<style[^>]*>.*?</style>", "(?s)<script[^>]*>.*?</script>", "(?s)<!--.*?-->"] {
 			text = text.replacingOccurrences(of: pattern, with: " ", options: [.regularExpression, .caseInsensitive])
 		}
 		text = text.replacingOccurrences(of: "<br\\s*/?>|</p>|</div>|</li>|</tr>|</h[1-6]>", with: "\n", options: [.regularExpression, .caseInsensitive])
 		text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-		for (entity, value) in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'")] {
-			text = text.replacingOccurrences(of: entity, with: value)
-		}
+		text = PreviewText.decodeEntities(text)
+		// Newsletters pad their preheader with invisible characters; they only cost length.
+		text = text.replacingOccurrences(of: "[\u{200B}\u{200C}\u{200D}\u{034F}\u{00AD}\u{FEFF}]", with: "", options: .regularExpression)
+		// Very long tracking queries say nothing; keep the address without them.
+		text = text.replacingOccurrences(of: "(https?://[^\\s?]{1,120})\\?[^\\s]{200,}", with: "$1", options: .regularExpression)
 		text = text.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
 		text = text.replacingOccurrences(of: "\\n\\s*\\n(\\s*\\n)+", with: "\n\n", options: .regularExpression)
 		return text.trimmingCharacters(in: .whitespacesAndNewlines)

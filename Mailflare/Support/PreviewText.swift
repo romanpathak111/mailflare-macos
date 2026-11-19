@@ -33,7 +33,7 @@ enum PreviewText {
 		regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template)
 	}
 
-	private static func decodeEntities(_ text: String) -> String {
+	static func decodeEntities(_ text: String) -> String {
 		var out = ""
 		var last = text.startIndex
 		for match in entity.matches(in: text, range: NSRange(text.startIndex..., in: text)) {

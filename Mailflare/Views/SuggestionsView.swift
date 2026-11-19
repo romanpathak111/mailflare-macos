@@ -52,15 +52,21 @@ struct SuggestionsSheet: View {
 							.font(.system(size: 12)).foregroundStyle(Folio.meta).lineLimit(1)
 					}
 					Spacer(minLength: 8)
+					// The status it will be accepted as; pick another to change it first.
 					Menu {
 						ForEach(ThreadStatus.allCases) { status in
-							Button(status.title) { automation.accept(item, as: status, store: store) }
+							Button { automation.choose(status, for: item) } label: {
+								if status == automation.status(of: item) { Label(status.title, systemImage: "checkmark") } else { Text(status.title) }
+							}
 						}
 					} label: {
-						StatusChip(status: item.suggestion.status, short: false)
+						HStack(spacing: 4) {
+							StatusChip(status: automation.status(of: item), short: false)
+							Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Folio.meta)
+						}
 					}
 					.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-					.help("Accept as another status")
+					.help("Change the status before accepting")
 					Button("Accept") { automation.accept(item, store: store) }
 						.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 30))
 					Button { automation.dismiss(item) } label: { HIcon(.close, size: 13).foregroundStyle(Folio.meta).frame(width: 24, height: 24) }
@@ -86,7 +92,7 @@ struct SuggestionsSheet: View {
 	}
 }
 
-/// One suggested folder rule with its Accept and Dismiss buttons.
+/// One suggested folder rule with Change (another folder), Accept and Dismiss.
 struct RuleSuggestionRow: View {
 	@Environment(MailStore.self) private var store
 	let suggestion: RuleSuggestion
@@ -97,10 +103,30 @@ struct RuleSuggestionRow: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text("File @\(suggestion.domain) into \(suggestion.folderName)")
 					.font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(1)
-				Text("\(suggestion.filed) already filed there · \(suggestion.waiting) in the inbox now")
+				Text(suggestion.changed
+					 ? "Your choice · \(suggestion.waiting) in the inbox now"
+					 : "\(suggestion.filed) already filed there · \(suggestion.waiting) in the inbox now")
 					.font(.system(size: 12)).foregroundStyle(Folio.meta).lineLimit(1)
 			}
 			Spacer(minLength: 8)
+			// Another folder for the rule, chosen before accepting.
+			Menu {
+				ForEach(store.customFolders(of: suggestion.accountID), id: \.id) { box in
+					Button { Automation.shared.change(suggestion, toFolder: box.id, name: box.name) } label: {
+						if box.id == suggestion.folderID { Label(box.name, systemImage: "checkmark") } else { Text(box.name) }
+					}
+				}
+			} label: {
+				HStack(spacing: 4) {
+					Text("Change").font(.system(size: 13, weight: .semibold)).foregroundStyle(Folio.body)
+					Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Folio.meta)
+				}
+				.padding(.horizontal, 10).frame(height: 30)
+				.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Folio.card))
+				.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
+			}
+			.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+			.help("File this sender's mail into a different folder")
 			Button("Accept") { Automation.shared.accept(suggestion, store: store) }
 				.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 30))
 			Button { Automation.shared.dismiss(suggestion) } label: { HIcon(.close, size: 13).foregroundStyle(Folio.meta).frame(width: 24, height: 24) }

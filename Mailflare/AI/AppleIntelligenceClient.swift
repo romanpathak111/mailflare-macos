@@ -66,12 +66,12 @@ enum AppleIntelligence {
 	/// cut, and only the latest turns kept.
 	static func fit(_ messages: [[String: Any]]) -> [[String: Any]] {
 		var out: [[String: Any]] = []
-		var budget = 9_000   // characters for the turns, after the system prompt
+		var budget = 12_000   // characters for the turns, after the system prompt
 		for message in messages.reversed() {
 			var m = message
 			let role = m["role"] as? String ?? ""
-			let limit = role == "system" ? 2_400 : (role == "tool" ? 1_400 : 2_000)
-			if let text = m["content"] as? String, text.count > limit { m["content"] = String(text.prefix(limit)) + " … [shortened]" }
+			let limit = role == "system" ? 2_400 : (role == "tool" ? 3_000 : 2_000)
+			if let text = m["content"] as? String, text.count > limit { m["content"] = String(text.prefix(limit)) + " … [shortened to fit Apple Intelligence; the email itself is complete]" }
 			if role == "system" { out.insert(m, at: 0); continue }
 			let size = (m["content"] as? String)?.count ?? 200
 			if budget - size < 0 && !out.isEmpty { break }
