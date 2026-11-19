@@ -871,12 +871,12 @@ private struct AssistantSettingsPage: View {
 	}
 
 	private let services = [
-		Service(preset: .anthropic, name: "Claude", maker: "Anthropic", icon: .sparkles),
-		Service(preset: .openai, name: "Codex", maker: "OpenAI", icon: .sourceCode),
+		Service(preset: .claudeCLI, name: "Claude", maker: "Claude Code on this Mac", icon: .sparkles),
+		Service(preset: .codexCLI, name: "Codex", maker: "Codex CLI on this Mac", icon: .sourceCode),
 	]
 
 	var body: some View {
-		Text("Connect your own account. The assistant suggests a status for each conversation, drafts replies and writes your Today note, using the service you choose.")
+		Text("The assistant runs Claude Code or Codex on this Mac with the login you already have, so no API key is needed. It suggests a status for each conversation, drafts replies and writes your Today note, using the service you choose.")
 			.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 		HStack(alignment: .top, spacing: 12) {
 			ForEach(services) { card($0) }
@@ -904,6 +904,7 @@ private struct AssistantSettingsPage: View {
 		let config = provider(service.preset)
 		let connected = config.map(ai.isReady) ?? false
 		let inUse = config?.id == ai.active?.id && connected
+		let installed = service.preset.localCLI?.isInstalled ?? true
 		return VStack(alignment: .leading, spacing: 14) {
 			HStack(spacing: 10) {
 				HIcon(service.icon, size: 18)
@@ -924,8 +925,10 @@ private struct AssistantSettingsPage: View {
 				.fixedSize()
 			}
 			Text(connected
-				 ? "\(config?.model ?? "")\(inUse ? " · in use" : ""). Your key is kept in the Keychain."
-				 : "Add your \(service.maker) API key to use \(service.name) as your assistant. You can connect both and choose one.")
+				 ? "\(config?.model ?? "")\(inUse ? " · in use" : ""). Runs through your \(service.name) login on this Mac, no API key."
+				 : installed
+				 ? "Uses your \(service.name) login on this Mac. No API key needed. You can connect both and choose one."
+				 : "The \(service.preset.localCLI?.command ?? "") command isn't installed on this Mac. Install it and sign in, then reopen Settings.")
 				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 			Spacer(minLength: 0)
 			HStack(spacing: 8) {
@@ -934,8 +937,13 @@ private struct AssistantSettingsPage: View {
 					if !inUse { Button("Use \(service.name)") { ai.select(providerID: config.id, model: config.model) }.buttonStyle(.pill) }
 					Button("Disconnect") { ai.remove(config.id) }.buttonStyle(.pill).foregroundStyle(.red)
 				} else {
-					Button("Connect \(service.name)") { edit(config ?? AIProviderConfig(preset: service.preset), isNew: config == nil) }
-						.buttonStyle(AccentPillStyle())
+					Button("Connect \(service.name)") {
+						let config = config ?? AIProviderConfig(preset: service.preset)
+						ai.save(config, key: "")
+						ai.select(providerID: config.id, model: config.model)
+					}
+					.buttonStyle(AccentPillStyle())
+					.disabled(!installed)
 				}
 			}
 		}
@@ -1000,7 +1008,7 @@ private struct AISettingsPage: View {
 				}
 			}
 		}
-		WideButton(title: "Add Provider", icon: .add) { edit(AIProviderConfig(preset: .openai), isNew: true) }
+		WideButton(title: "Add Provider", icon: .add) { edit(AIProviderConfig(preset: .codexCLI), isNew: true) }
 			.sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
 				ProviderEditor(config: Binding(get: { editing ?? AIProviderConfig(preset: .openai) }, set: { editing = $0 }),
 							   key: $keyText, isNew: editingIsNew, cache: $modelCache) {
@@ -1060,10 +1068,14 @@ private struct ProviderEditor: View {
 	@State private var typeModel = false
 
 	private var cacheKey: String { "\(config.baseURLString)|\(key.trimmingCharacters(in: .whitespaces))" }
-	private var canList: Bool { config.baseURL != nil && (!config.preset.needsKey || !key.trimmingCharacters(in: .whitespaces).isEmpty) }
+	private var canList: Bool {
+		if config.preset.localCLI != nil { return true }
+		return config.baseURL != nil && (!config.preset.needsKey || !key.trimmingCharacters(in: .whitespaces).isEmpty)
+	}
 
 	private var canSave: Bool {
-		config.baseURL != nil && !config.model.trimmingCharacters(in: .whitespaces).isEmpty
+		if let cli = config.preset.localCLI { return cli.isInstalled && !config.model.trimmingCharacters(in: .whitespaces).isEmpty }
+		return config.baseURL != nil && !config.model.trimmingCharacters(in: .whitespaces).isEmpty
 			&& (!config.preset.needsKey || !key.trimmingCharacters(in: .whitespaces).isEmpty)
 	}
 
@@ -1085,7 +1097,7 @@ private struct ProviderEditor: View {
 					if loading { ProgressView().controlSize(.small) } else { Text("Load Models") }
 				}
 				.buttonStyle(.pill)
-				.disabled(loading || config.baseURL == nil || (config.preset.needsKey && key.trimmingCharacters(in: .whitespaces).isEmpty))
+				.disabled(loading || !canList)
 				Spacer()
 				Button("Cancel", action: cancel).buttonStyle(.pill).keyboardShortcut(.cancelAction)
 				Button("Save", action: save).buttonStyle(.pillProminent).disabled(!canSave)
@@ -1123,6 +1135,16 @@ private struct ProviderEditor: View {
 					Spacer(minLength: 12)
 					TextField("Cloudflare account ID", text: Binding(get: { config.cloudflareAccountID ?? "" }, set: { config.cloudflareAccountID = $0 }))
 						.textFieldStyle(.plain).multilineTextAlignment(.trailing).font(Typography.body)
+				}
+			}
+			if let cli = config.preset.localCLI {
+				SettingsDivider()
+				SettingsRow {
+					Text(cli.isInstalled
+						 ? "Runs the \(cli.command) command on this Mac with your own login. No API key."
+						 : "The \(cli.command) command isn't installed on this Mac.")
+						.font(Typography.meta).foregroundStyle(cli.isInstalled ? Color.secondary : Color.orange)
+					Spacer()
 				}
 			}
 			if config.preset.needsKey {
@@ -1171,6 +1193,12 @@ private struct ProviderEditor: View {
 	}
 
 	private func loadModels() async {
+		if let cli = config.preset.localCLI {
+			config.models = cli.models
+			typeModel = false
+			if config.model.trimmingCharacters(in: .whitespaces).isEmpty { config.model = cli.defaultModel }
+			return
+		}
 		guard let baseURL = config.baseURL else { return }
 		loading = true; error = nil
 		defer { loading = false }

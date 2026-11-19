@@ -2,15 +2,19 @@ import Foundation
 import Observation
 import Security
 
-/// The services the assistant can talk to. All of them speak the OpenAI chat-completions protocol
-/// (Anthropic through its compatibility endpoint), so one client serves every preset.
+/// The services the assistant can talk to. The first two run the Claude Code or Codex CLI on this
+/// Mac with the user's own login; the rest speak the OpenAI chat-completions protocol (Anthropic
+/// through its compatibility endpoint), so one client serves them all.
 enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
+	case claudeCLI = "claude-cli", codexCLI = "codex-cli"
 	case openai, anthropic, openrouter, groq, deepseek, cloudflare, ollama, custom
 
 	var id: String { rawValue }
 
 	var title: String {
 		switch self {
+		case .claudeCLI: "Claude Code (this Mac)"
+		case .codexCLI: "Codex (this Mac)"
 		case .openai: "OpenAI"
 		case .anthropic: "Anthropic"
 		case .openrouter: "OpenRouter"
@@ -32,7 +36,7 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 		// Needs the account id: see `AIProviderConfig.baseURLString`.
 		case .cloudflare: ""
 		case .ollama: "http://localhost:11434/v1"
-		case .custom: ""
+		case .custom, .claudeCLI, .codexCLI: ""
 		}
 	}
 
@@ -46,11 +50,21 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 		case .cloudflare: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 		case .ollama: "llama3.1"
 		case .custom: ""
+		case .claudeCLI, .codexCLI: localCLI?.defaultModel ?? ""
 		}
 	}
 
-	/// Ollama runs on this Mac and takes no key.
-	var needsKey: Bool { self != .ollama }
+	/// The CLI behind a "this Mac" preset.
+	var localCLI: LocalCLI? {
+		switch self {
+		case .claudeCLI: .claude
+		case .codexCLI: .codex
+		default: nil
+		}
+	}
+
+	/// Ollama and the CLIs run on this Mac and take no key.
+	var needsKey: Bool { self != .ollama && localCLI == nil }
 }
 
 /// One configured provider: a preset (or custom address), a model and, in the Keychain, a key.
@@ -69,6 +83,7 @@ struct AIProviderConfig: Identifiable, Codable, Equatable {
 		self.preset = preset
 		name = preset.title
 		model = preset.defaultModel
+		models = preset.localCLI?.models ?? []
 	}
 
 	var baseURLString: String {
@@ -106,6 +121,7 @@ final class AISettings {
 		static let instructions = "ai.instructions"
 		static let writer = "ai.writerModel"
 		static let writerInstructions = "ai.writerInstructions"
+		static let localAdded = "ai.localProvidersAdded"
 	}
 
 	private(set) var providers: [AIProviderConfig]
@@ -143,6 +159,25 @@ final class AISettings {
 		let chosen = defaults.string(forKey: Keys.active)
 		activeID = providers.contains { $0.id == chosen } ? chosen : providers.first?.id
 		if defaults.data(forKey: Keys.providers) == nil, !providers.isEmpty { persist() }
+		addLocalProvidersOnce()
+	}
+
+	/// The first time, connects Claude Code and Codex when they are installed, and uses one of them,
+	/// so the assistant works through the user's own logins without an API key.
+	private func addLocalProvidersOnce() {
+		let defaults = UserDefaults.standard
+		guard !defaults.bool(forKey: Keys.localAdded) else { return }
+		defaults.set(true, forKey: Keys.localAdded)
+		var added: [AIProviderConfig] = []
+		for preset in [AIProviderPreset.claudeCLI, .codexCLI] where preset.localCLI?.isInstalled == true && !providers.contains(where: { $0.preset == preset }) {
+			let config = AIProviderConfig(preset: preset)
+			providers.append(config)
+			added.append(config)
+		}
+		guard !added.isEmpty else { return }
+		// Prefer Codex, then Claude Code, over any API provider set up before.
+		activeID = (added.first { $0.preset == .codexCLI } ?? added[0]).id
+		persist()
 	}
 
 	/// The first version kept one setting per preset; each one that had a key becomes a provider.
@@ -166,7 +201,8 @@ final class AISettings {
 	func apiKey(for id: String) -> String { keys[id] ?? "" }
 
 	func isReady(_ config: AIProviderConfig) -> Bool {
-		config.baseURL != nil && !config.model.trimmingCharacters(in: .whitespaces).isEmpty
+		if let cli = config.preset.localCLI { return cli.isInstalled && !config.model.trimmingCharacters(in: .whitespaces).isEmpty }
+		return config.baseURL != nil && !config.model.trimmingCharacters(in: .whitespaces).isEmpty
 			&& (!config.preset.needsKey || !apiKey(for: config.id).isEmpty)
 	}
 
@@ -180,24 +216,32 @@ final class AISettings {
 	}
 
 	var client: AIClient? {
-		guard let active, let baseURL = active.baseURL else { return nil }
-		return AIClient(baseURL: baseURL, apiKey: apiKey(for: active.id), model: active.model.trimmingCharacters(in: .whitespaces))
+		guard let active else { return nil }
+		return makeClient(active, model: active.model)
+	}
+
+	/// A client for a ready provider and model: the CLI for a "this Mac" provider, else HTTP.
+	private func makeClient(_ provider: AIProviderConfig, model: String) -> AIClient? {
+		let model = model.trimmingCharacters(in: .whitespaces)
+		if let cli = provider.preset.localCLI { return .local(cli, model: model) }
+		guard let baseURL = provider.baseURL else { return nil }
+		return AIClient(baseURL: baseURL, apiKey: apiKey(for: provider.id), model: model)
 	}
 
 	/// The client for AI Writer: its own model when one is chosen and still usable, else the assistant's.
 	var writerClient: AIClient? {
 		guard let choice = writerChoice, let provider = readyProviders.first(where: { $0.id == choice.providerID }),
-			  let baseURL = provider.baseURL, !choice.model.trimmingCharacters(in: .whitespaces).isEmpty
+			  !choice.model.trimmingCharacters(in: .whitespaces).isEmpty
 		else { return client }
-		return AIClient(baseURL: baseURL, apiKey: apiKey(for: provider.id), model: choice.model)
+		return makeClient(provider, model: choice.model) ?? client
 	}
 
 	/// The client for `model` on a provider, when both are set and usable; otherwise AI Writer's.
 	func writerClient(providerID: String?, model: String?) -> AIClient? {
 		guard let providerID, let model = model?.trimmingCharacters(in: .whitespaces), !model.isEmpty,
-			  let provider = readyProviders.first(where: { $0.id == providerID }), let baseURL = provider.baseURL
+			  let provider = readyProviders.first(where: { $0.id == providerID })
 		else { return writerClient }
-		return AIClient(baseURL: baseURL, apiKey: apiKey(for: provider.id), model: model)
+		return makeClient(provider, model: model) ?? writerClient
 	}
 
 	/// Picks the model for AI Writer, or nil to follow the assistant.

@@ -17,11 +17,17 @@ struct AIError: LocalizedError {
 	var errorDescription: String? { message }
 }
 
-/// A streaming client for the OpenAI chat-completions protocol.
+/// A streaming client for the OpenAI chat-completions protocol, or for a CLI on this Mac.
 struct AIClient {
 	var baseURL: URL
 	var apiKey: String
 	var model: String
+	/// Set for Claude Code or Codex on this Mac: turns run through the CLI, not over HTTP.
+	var local: LocalCLI? = nil
+
+	static func local(_ cli: LocalCLI, model: String) -> AIClient {
+		AIClient(baseURL: URL(string: "http://localhost")!, apiKey: "", model: model, local: cli)
+	}
 
 	private static func request(_ url: URL, apiKey: String) -> URLRequest {
 		var request = URLRequest(url: url)
@@ -43,6 +49,7 @@ struct AIClient {
 
 	/// Streams one assistant turn. `messages` and `tools` are in the protocol's own JSON shape.
 	func stream(messages: [[String: Any]], tools: [[String: Any]]) -> AsyncThrowingStream<AIStreamEvent, Error> {
+		if let local { return LocalCLIClient(cli: local, model: model).stream(messages: messages, tools: tools) }
 		var body: [String: Any] = ["model": model, "messages": messages, "stream": true]
 		// Some providers reject an empty tool list.
 		if !tools.isEmpty { body["tools"] = tools }
