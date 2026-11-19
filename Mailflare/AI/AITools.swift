@@ -50,6 +50,15 @@ struct AIMailTools {
 		tool("discard_draft", "Delete a draft.", ["draftId": id], required: ["draftId"]),
 		tool("mark_email_read", "Mark an email read or unread.", ["emailId": id, "read": ["type": "boolean"]], required: ["emailId", "read"]),
 		tool("move_email", "Move an email to inbox, archive, trash or spam.", ["emailId": id, "destination": ["type": "string", "enum": destinations]], required: ["emailId", "destination"]),
+		tool("set_status", "Tag an email with a status: needsReply (the user owes an answer), waiting (waiting on someone else), canArchive (nothing to do), longTerm (worth keeping), or none to clear it.", [
+			"emailIds": ["type": "array", "items": ["type": "string"], "description": "Up to 20 emailIds."],
+			"status": ["type": "string", "enum": ["needsReply", "waiting", "canArchive", "longTerm", "none"]],
+		], required: ["emailIds", "status"]),
+		tool("list_folders", "List the user's own folders (or Gmail labels) by name."),
+		tool("move_to_folder", "File emails into one of the user's folders, by its name as list_folders gives it.", [
+			"emailIds": ["type": "array", "items": ["type": "string"], "description": "Up to 20 emailIds."],
+			"folder": ["type": "string"],
+		], required: ["emailIds", "folder"]),
 		tool("move_emails", "Move up to 20 emails to inbox, archive, trash or spam.", [
 			"emailIds": ["type": "array", "items": ["type": "string"]], "destination": ["type": "string", "enum": destinations],
 		], required: ["emailIds", "destination"]),
@@ -112,6 +121,9 @@ struct AIMailTools {
 		case "discard_draft": done ? "Discarded a draft" : "Discarding a draft…"
 		case "mark_email_read": done ? "Updated read state" : "Updating read state…"
 		case "move_email", "move_emails": done ? "Moved mail" : "Moving mail…"
+		case "set_status": done ? "Set a status" : "Setting a status…"
+		case "list_folders": done ? "Listed folders" : "Listing folders…"
+		case "move_to_folder": done ? "Filed mail" : "Filing mail…"
 		case "read_file": done ? "Read a file" : "Reading a file…"
 		case "list_templates": done ? "Listed templates" : "Listing templates…"
 		case "get_template": done ? "Read a template" : "Reading a template…"
@@ -193,10 +205,11 @@ struct AIMailTools {
 		case "mcp_list_tools": return try await mcpListTools(args)
 		case "mcp_call_tool": return try await mcpCall(args)
 		case "move_email": return try move(ids: [try string(args, "emailId")], to: try string(args, "destination"))
+		case "set_status": return try setStatus(args)
+		case "list_folders": return ["folders": store.customFolders(of: accountID).map(\.name)]
+		case "move_to_folder": return try moveToFolder(args)
 		case "move_emails":
-			let ids = (args["emailIds"] as? [String]) ?? []
-			guard !ids.isEmpty, ids.count <= 20 else { throw Failure(message: "Give between 1 and 20 emailIds.") }
-			return try move(ids: ids, to: try string(args, "destination"))
+			return try move(ids: try ids(args), to: try string(args, "destination"))
 		default: throw Failure(message: "Unknown tool \(name).")
 		}
 	}
@@ -490,7 +503,47 @@ struct AIMailTools {
 		return ["emailId": id, "read": read]
 	}
 
-	private func move(ids: [String], to destination: String) throws -> [String: Any] {
+	private func ids(_ args: [String: Any]) throws -> [String] {
+		// A single id may come as text rather than a list.
+		let ids = (args["emailIds"] as? [String]) ?? (args["emailIds"] as? String).map { [$0] } ?? (args["emailId"] as? String).map { [$0] } ?? []
+		guard !ids.isEmpty, ids.count <= 20 else { throw Failure(message: "Give between 1 and 20 emailIds.") }
+		return ids
+	}
+
+	private func setStatus(_ args: [String: Any]) throws -> [String: Any] {
+		let ids = try ids(args)
+		let name = try string(args, "status")
+		let status = ThreadStatus(rawValue: name)
+		guard status != nil || name == "none" else { throw Failure(message: "Unknown status \(name).") }
+		for id in ids {
+			if let status {
+				let summary = try? core.messageSummary(accountId: accountID, messageId: id)
+				store.statuses.set(status, account: accountID, message: id, summary: summary)
+				Automation.shared.resolved(account: accountID, message: id)
+			} else {
+				store.statuses.remove(account: accountID, message: id)
+			}
+		}
+		if store.statusList != nil || store.statusFilter != .all { store.reload() }
+		return ["tagged": ids.count, "status": name]
+	}
+
+	private func moveToFolder(_ args: [String: Any]) throws -> [String: Any] {
+		let ids = try ids(args)
+		let wanted = try string(args, "folder").trimmingCharacters(in: .whitespaces).lowercased()
+		let folders = store.customFolders(of: accountID)
+		guard let box = folders.first(where: { $0.name.lowercased() == wanted })
+				?? folders.first(where: { $0.name.lowercased().contains(wanted) }) else {
+			throw Failure(message: "No folder called \(wanted). Folders: " + folders.prefix(40).map(\.name).joined(separator: ", "))
+		}
+		let moved = try core.moveMessages(accountId: accountID, messageIds: ids, target: .mailbox(id: box.id))
+		store.aiDidChangeMail()
+		return ["moved": Int(moved), "folder": box.name]
+	}
+
+	private func move(ids: [String], to requested: String) throws -> [String: Any] {
+		let aliases = ["archive": "archived", "junk": "spam", "bin": "trash", "deleted": "trash"]
+		let destination = aliases[requested.lowercased()] ?? requested.lowercased()
 		guard Self.destinations.contains(destination) else { throw Failure(message: "Unknown destination \(destination).") }
 		let role = try self.role(forFolder: destination)
 		let moved = try core.moveMessages(accountId: accountID, messageIds: ids, target: .role(role: role))

@@ -76,7 +76,9 @@ enum StatusAssistant {
 			  let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [:] }
 		var result: [String: Suggestion] = [:]
 		for entry in array {
-			guard let id = entry["id"] as? String, let raw = entry["status"] as? String, let status = ThreadStatus(rawValue: raw) else { continue }
+			// Small models may write the id as a number.
+			let id = (entry["id"] as? String) ?? (entry["id"] as? NSNumber).map { $0.stringValue }
+			guard let id, let raw = entry["status"] as? String, let status = ThreadStatus(rawValue: raw) else { continue }
 			let ask = (entry["ask"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 			let due = (entry["due"] as? String)?.lowercased() == "today" && status == .needsReply ? Date.now : nil
 			result[id] = Suggestion(status: status, ask: status == .needsReply && ask?.isEmpty == false ? ask : nil, due: due)

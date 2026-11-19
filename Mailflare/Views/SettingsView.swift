@@ -903,6 +903,7 @@ private struct AssistantSettingsPage: View {
 	private let services = [
 		Service(preset: .claudeCLI, name: "Claude", maker: "Claude Code on this Mac", icon: .sparkles),
 		Service(preset: .codexCLI, name: "Codex", maker: "Codex CLI on this Mac", icon: .sourceCode),
+		Service(preset: .appleIntelligence, name: "Apple Intelligence", maker: "Apple's model, on this Mac", icon: .aiContent),
 	]
 
 	var body: some View {
@@ -916,6 +917,7 @@ private struct AssistantSettingsPage: View {
 			HStack(alignment: .top, spacing: 16) {
 				ForEach(services) { card($0) }
 			}
+			whoDoesWhat
 			VStack(alignment: .leading, spacing: 0) {
 				Text("What the assistant does").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
 					.padding(.bottom, 12)
@@ -933,6 +935,52 @@ private struct AssistantSettingsPage: View {
 				Button("More providers and models…") { store.settingsPage = .ai }
 					.buttonStyle(.plain).font(.system(size: 13, weight: .semibold)).foregroundStyle(Folio.selectionInk)
 			}
+		}
+	}
+
+	/// Which assistant chats and drafts, and which one sorts mail in the background.
+	@ViewBuilder
+	private var whoDoesWhat: some View {
+		if ai.readyProviders.count > 1 {
+			VStack(alignment: .leading, spacing: 0) {
+				Text("Who does what").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink).padding(.bottom, 12)
+				roleRow("Chat, replies and MCP", "The assistant panel and suggested replies.", current: ai.active) { p in
+					ai.select(providerID: p.id, model: p.model)
+				}
+				roleRow("Sorting, suggestions and summaries", "Runs in the background as mail arrives. Apple Intelligence is instant, free and private.", current: ai.backgroundProvider) { p in
+					ai.selectBackground(p.id)
+				}
+				Rectangle().fill(Folio.line).frame(height: 1)
+			}
+		}
+	}
+
+	private func roleRow(_ title: String, _ detail: String, current: AIProviderConfig?, choose: @escaping (AIProviderConfig) -> Void) -> some View {
+		VStack(spacing: 0) {
+			Rectangle().fill(Folio.line).frame(height: 1)
+			HStack(spacing: 20) {
+				VStack(alignment: .leading, spacing: 2) {
+					Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink)
+					Text(detail).font(.system(size: 13)).foregroundStyle(Folio.meta).fixedSize(horizontal: false, vertical: true)
+				}
+				Spacer(minLength: 12)
+				Menu {
+					ForEach(ai.readyProviders) { p in
+						Button((p.id == current?.id ? "✓  " : "") + (p.preset.isOnThisMac ? p.preset.title.replacingOccurrences(of: " (this Mac)", with: "") : p.name)) { choose(p) }
+					}
+				} label: {
+					HStack(spacing: 8) {
+						Text(current.map { $0.preset.isOnThisMac ? $0.preset.title.replacingOccurrences(of: " (this Mac)", with: "") : $0.name } ?? "None")
+							.font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.body)
+						HIcon(.chevronDown, size: 12).foregroundStyle(Folio.meta)
+					}
+					.padding(.horizontal, 14).frame(height: 36)
+					.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Folio.card))
+					.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
+				}
+				.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+			}
+			.frame(minHeight: 64)
 		}
 	}
 
@@ -960,7 +1008,8 @@ private struct AssistantSettingsPage: View {
 		let config = provider(service.preset)
 		let connected = config.map(ai.isReady) ?? false
 		let inUse = config?.id == ai.active?.id && connected
-		let installed = service.preset.localCLI?.isInstalled ?? true
+		let apple = service.preset == .appleIntelligence
+		let installed = apple ? AppleIntelligence.isAvailable : (service.preset.localCLI?.isInstalled ?? true)
 		return VStack(alignment: .leading, spacing: 22) {
 			HStack(spacing: 14) {
 				HIcon(service.icon, size: 22)
@@ -982,7 +1031,13 @@ private struct AssistantSettingsPage: View {
 				.fixedSize()
 			}
 			VStack(alignment: .leading, spacing: 4) {
-				if connected {
+				if apple && connected {
+					Text("Apple's on-device model. Free and private, and works offline.")
+					Text("Best for sorting, tagging, filing and short replies.")
+				} else if apple {
+					Text(AppleIntelligence.unavailableReason ?? "Free and private, on this Mac.")
+					Text("Best for sorting, tagging, filing and short replies.")
+				} else if connected {
 					Text("Runs the \(service.preset.localCLI?.command ?? "") command with your \(service.name) sign-in")
 					Text("Model: \(config?.model ?? "default") · no API key")
 				} else if installed {
@@ -997,8 +1052,10 @@ private struct AssistantSettingsPage: View {
 			Spacer(minLength: 0)
 			HStack(spacing: 10) {
 				if let config, connected {
-					Button("Manage account") { edit(config, isNew: false) }
-						.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke))
+					if !apple {
+						Button("Manage account") { edit(config, isNew: false) }
+							.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke))
+					}
 					if !inUse {
 						Button("Use \(service.name)") { ai.select(providerID: config.id, model: config.model) }
 							.buttonStyle(FolioOutlineButtonStyle())

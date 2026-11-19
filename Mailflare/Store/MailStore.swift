@@ -2038,7 +2038,7 @@ final class MailStore {
 	func sortUnsortedMail() {
 		guard !isSortingStatuses, core != nil else { return }
 		isSortingStatuses = true
-		let client = ai.client
+		let client = ai.backgroundClient
 		let accounts = accountList.filter { unifiedIncludes($0.id) }
 		Task { [weak self] in
 			guard let self else { return }
@@ -2057,9 +2057,10 @@ final class MailStore {
 			}
 			var suggestions: [String: StatusAssistant.Suggestion] = [:]
 			if let client {
-				for start in stride(from: 0, to: items.count, by: 20) {
+				let batch = client.onDevice ? 5 : 20
+				for start in stride(from: 0, to: items.count, by: batch) {
 					do {
-						let sorted = try await StatusAssistant.classify(client: client, items: (start..<min(start + 20, items.count)).map(item))
+						let sorted = try await StatusAssistant.classify(client: client, items: (start..<min(start + batch, items.count)).map(item))
 						suggestions.merge(sorted) { _, new in new }
 					} catch { self.banner = "Sorting stopped: \(describe(error))"; break }
 				}
@@ -2206,7 +2207,7 @@ final class MailStore {
 
 	/// Summarizes the open message with the AI provider and saves the result with the message.
 	func summarizeSelected() {
-		guard summarizingID == nil, let detail, let id = selectedID, detail.summary.id == id, let client = ai.client else { return }
+		guard summarizingID == nil, let detail, let id = selectedID, detail.summary.id == id, let client = ai.backgroundClient else { return }
 		summarizingID = id
 		summaryError = nil
 		let subject = detail.summary.subject, from = detail.summary.sender.formatted

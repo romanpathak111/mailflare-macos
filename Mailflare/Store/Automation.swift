@@ -209,8 +209,13 @@ final class Automation {
 			return StatusAssistant.Item(id: String(index), from: m.sender.formatted, subject: m.subject, preview: PreviewText.plain(m.preview))
 		}
 		var answers: [String: StatusAssistant.Suggestion] = [:]
-		if let client = store.ai.client {
-			answers = (try? await StatusAssistant.classify(client: client, items: items.indices.map(item))) ?? [:]
+		if let client = store.ai.backgroundClient {
+			// The on-device model reads a few at a time; the others take the batch at once.
+			let batch = client.onDevice ? 5 : 20
+			for start in stride(from: 0, to: items.count, by: batch) {
+				let slice = (start..<min(start + batch, items.count)).map(item)
+				if let found = try? await StatusAssistant.classify(client: client, items: slice) { answers.merge(found) { _, new in new } }
+			}
 		}
 		var added: [StatusSuggestion] = []
 		for (index, pair) in items.enumerated() {

@@ -6,7 +6,7 @@ import Security
 /// Mac with the user's own login; the rest speak the OpenAI chat-completions protocol (Anthropic
 /// through its compatibility endpoint), so one client serves them all.
 enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
-	case claudeCLI = "claude-cli", codexCLI = "codex-cli"
+	case claudeCLI = "claude-cli", codexCLI = "codex-cli", appleIntelligence = "apple"
 	case openai, anthropic, openrouter, groq, deepseek, cloudflare, ollama, custom
 
 	var id: String { rawValue }
@@ -15,6 +15,7 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 		switch self {
 		case .claudeCLI: "Claude Code (this Mac)"
 		case .codexCLI: "Codex (this Mac)"
+		case .appleIntelligence: "Apple Intelligence (this Mac)"
 		case .openai: "OpenAI"
 		case .anthropic: "Anthropic"
 		case .openrouter: "OpenRouter"
@@ -36,7 +37,7 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 		// Needs the account id: see `AIProviderConfig.baseURLString`.
 		case .cloudflare: ""
 		case .ollama: "http://localhost:11434/v1"
-		case .custom, .claudeCLI, .codexCLI: ""
+		case .custom, .claudeCLI, .codexCLI, .appleIntelligence: ""
 		}
 	}
 
@@ -51,6 +52,7 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 		case .ollama: "llama3.1"
 		case .custom: ""
 		case .claudeCLI, .codexCLI: localCLI?.defaultModel ?? ""
+		case .appleIntelligence: "on-device"
 		}
 	}
 
@@ -64,7 +66,10 @@ enum AIProviderPreset: String, CaseIterable, Identifiable, Codable {
 	}
 
 	/// Ollama and the CLIs run on this Mac and take no key.
-	var needsKey: Bool { self != .ollama && localCLI == nil }
+	var needsKey: Bool { self != .ollama && localCLI == nil && self != .appleIntelligence }
+
+	/// Runs on this Mac without a network service: the CLIs and Apple Intelligence.
+	var isOnThisMac: Bool { localCLI != nil || self == .appleIntelligence }
 }
 
 /// One configured provider: a preset (or custom address), a model and, in the Keychain, a key.
@@ -83,7 +88,7 @@ struct AIProviderConfig: Identifiable, Codable, Equatable {
 		self.preset = preset
 		name = preset.title
 		model = preset.defaultModel
-		models = preset.localCLI?.models ?? []
+		models = preset.localCLI?.models ?? (preset == .appleIntelligence ? ["on-device"] : [])
 	}
 
 	var baseURLString: String {
@@ -122,6 +127,8 @@ final class AISettings {
 		static let writer = "ai.writerModel"
 		static let writerInstructions = "ai.writerInstructions"
 		static let localAdded = "ai.localProvidersAdded"
+		static let appleAdded = "ai.appleIntelligenceAdded"
+		static let background = "ai.backgroundProvider"
 	}
 
 	private(set) var providers: [AIProviderConfig]
@@ -160,6 +167,41 @@ final class AISettings {
 		activeID = providers.contains { $0.id == chosen } ? chosen : providers.first?.id
 		if defaults.data(forKey: Keys.providers) == nil, !providers.isEmpty { persist() }
 		addLocalProvidersOnce()
+		addAppleIntelligenceOnce()
+		backgroundID = defaults.string(forKey: Keys.background)
+	}
+
+	/// The first time Apple Intelligence is available, it is connected and given the background
+	/// work (status suggestions, sorting, summaries): instant, free and private.
+	private func addAppleIntelligenceOnce() {
+		let defaults = UserDefaults.standard
+		guard !defaults.bool(forKey: Keys.appleAdded), AppleIntelligence.isAvailable else { return }
+		defaults.set(true, forKey: Keys.appleAdded)
+		if !providers.contains(where: { $0.preset == .appleIntelligence }) {
+			let config = AIProviderConfig(preset: .appleIntelligence)
+			providers.append(config)
+			if activeID == nil { activeID = config.id }
+			defaults.set(config.id, forKey: Keys.background)
+			persist()
+		}
+	}
+
+	/// The provider for background work; nil follows the assistant (chat) provider.
+	private(set) var backgroundID: String?
+
+	func selectBackground(_ id: String?) {
+		backgroundID = id
+		UserDefaults.standard.set(id, forKey: Keys.background)
+	}
+
+	/// The provider that sorts mail, suggests statuses and writes summaries.
+	var backgroundProvider: AIProviderConfig? {
+		readyProviders.first { $0.id == backgroundID } ?? active
+	}
+
+	var backgroundClient: AIClient? {
+		guard let provider = backgroundProvider else { return nil }
+		return makeClient(provider, model: provider.model)
 	}
 
 	/// The first time, connects Claude Code and Codex when they are installed, and uses one of them,
@@ -202,6 +244,7 @@ final class AISettings {
 
 	func isReady(_ config: AIProviderConfig) -> Bool {
 		if let cli = config.preset.localCLI { return cli.isInstalled && !config.model.trimmingCharacters(in: .whitespaces).isEmpty }
+		if config.preset == .appleIntelligence { return AppleIntelligence.isAvailable }
 		return config.baseURL != nil && !config.model.trimmingCharacters(in: .whitespaces).isEmpty
 			&& (!config.preset.needsKey || !apiKey(for: config.id).isEmpty)
 	}
@@ -224,6 +267,11 @@ final class AISettings {
 	private func makeClient(_ provider: AIProviderConfig, model: String) -> AIClient? {
 		let model = model.trimmingCharacters(in: .whitespaces)
 		if let cli = provider.preset.localCLI { return .local(cli, model: model) }
+		if provider.preset == .appleIntelligence {
+			var client = AIClient(baseURL: URL(string: "http://localhost")!, apiKey: "", model: "on-device")
+			client.onDevice = true
+			return client
+		}
 		guard let baseURL = provider.baseURL else { return nil }
 		return AIClient(baseURL: baseURL, apiKey: apiKey(for: provider.id), model: model)
 	}
