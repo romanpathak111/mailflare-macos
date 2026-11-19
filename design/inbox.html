@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Inbox concept · Mailflare</title><style>
+*{box-sizing:border-box}body{margin:0;background:#dfdfd7;color:#253c36;font:16px Inter,-apple-system,Arial,sans-serif;padding:5vh 3vw}main{max-width:1440px;margin:auto;display:grid;grid-template-columns:190px 32% 1fr;min-height:88vh;background:#fffefa;border:1px solid #bbc3b9;border-radius:18px;overflow:hidden;box-shadow:0 16px 54px #263d3521}aside{background:#203e36;color:#ecf2e9;padding:23px 18px;display:flex;flex-direction:column}aside small{color:#b3cac1;margin:36px 0 12px}aside p{margin:0;padding:11px;border-radius:7px}.active{background:#38584c}footer{margin-top:auto;font-size:13px;color:#bed4c7}.dots{color:#cbb899;letter-spacing:4px;margin-bottom:36px}section{border-right:1px solid #dce1d8}header,article{padding:28px}h1,h2{font-family:Georgia,serif;font-weight:400;margin:8px 0 14px}h1{font-size:36px}h2{font-size:34px}small,time{font-size:12px;color:#65766d}button{font:inherit;cursor:pointer}section button{display:block;width:100%;text-align:left;border:0;border-top:1px solid #dce1d8;padding:22px;background:transparent;color:inherit}section button[aria-pressed=true]{background:#e6eee4;box-shadow:inset 4px 0 #55745c}time{float:right}strong{display:block;margin:8px 0}article{padding:38px}article p{line-height:1.65}.code{background:#edf2e8;padding:24px;border-radius:12px;margin-top:30px}.code b{font:32px monospace;letter-spacing:4px}.code button{display:block;margin-top:18px;background:#294d40;color:white;border:none;border-radius:6px;padding:9px 16px}@media(max-width:800px){body{padding:0}main{grid-template-columns:36% 1fr}aside{display:none}article{padding:22px}}
+</style><main><aside><div class="dots">●●●</div><b>Mailflare</b><small>MAILBOXES</small><p class="active">All inboxes</p><p>Starred</p><p>Sent</p><p>Drafts</p><small>ACCOUNTS</small><p>Work</p><p>Personal</p><footer>● &nbsp; Up to date</footer></aside><section><header><small>Thursday, 19 November</small><h1>All inboxes</h1><small>4 messages across 2 accounts</small></header></section><article aria-live="polite"></article></main><script>
+const messages=[
+['Studio Desk','09:42','Your sign-in code','Work','Use this code to finish signing in to Studio Desk. It expires in ten minutes.'],
+['Mira Chen','09:18','Friday’s workshop','Work','The room is booked for Friday at ten. Can you bring the sketches from our last session?'],
+['Northside Library','08:36','Your holds are ready','Personal','The two books you reserved are ready for collection at the front desk.'],
+['Leo Park','Yesterday','Dinner on Sunday?','Personal','We have a table by the window at six. Hope you can make it!']
+];
+const list=document.querySelector('section'),reader=document.querySelector('article');
+function selectMessage(index){
+ const [sender,time,subject,account,body]=messages[index];
+ [...list.querySelectorAll('button')].forEach((button,i)=>button.setAttribute('aria-pressed',String(i===index)));
+ reader.innerHTML='<small>'+account+' inbox</small><h2>'+subject+'</h2><strong>'+sender+'</strong><small>To me · '+time+'</small><hr style="border:0;border-top:1px solid #dde3db;margin:26px 0"><p>'+body+'</p>';
+ if(index===0){
+ reader.insertAdjacentHTML('beforeend','<div class="code"><small>Sign-in code</small><p><b>482 913</b></p><button>Copy code</button></div>');
+ reader.querySelector('button').onclick=async(event)=>{const button=event.currentTarget;try{await navigator.clipboard.writeText('482913');button.textContent='Copied ✓'}catch{button.textContent='Select the code to copy'}};
+ }
+}
+messages.forEach(([sender,time,subject,account],index)=>{const button=document.createElement('button');button.innerHTML='<time>'+time+'</time>'+sender+'<strong>'+subject+'</strong><small>'+account+'</small>';button.onclick=()=>selectMessage(index);list.append(button)});
+selectMessage(0);
+</script></html>
