@@ -335,7 +335,7 @@ struct ContentView: View {
 		.background(AppTheme.background)
 		// One loader bar along the top of the card: syncing, or a message body loading.
 		.overlay(alignment: .top) {
-			LoaderBar(isActive: store.isSyncing || store.isSearchingServer || store.isFetchingUnread || (store.selectedID != nil && store.detail == nil))
+			LoaderBar(isActive: store.isSyncing || store.isSearchingServer || (store.selectedID != nil && store.detail == nil))
 		}
 		.clipShape(RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous))
 		.overlay(RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous).stroke(AppTheme.outline, lineWidth: 1))

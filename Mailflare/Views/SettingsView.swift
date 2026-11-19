@@ -317,8 +317,6 @@ private struct GeneralSettings: View {
 	@AppStorage(ReadingSettings.markReadDelayKey) private var markReadDelay = 0
 	@AppStorage(ReadingSettings.loadRemoteContentKey) private var loadRemote = true
 	@AppStorage(ReadingSettings.showAvatarsKey) private var showAvatars = true
-	@AppStorage(ReadingSettings.offlineDepthKey) private var offlineDepth = 1000
-	@Environment(MailStore.self) private var store
 	@State private var launchAtLogin = LaunchAtLogin.isEnabled
 
 	var body: some View {
@@ -361,16 +359,11 @@ private struct GeneralSettings: View {
 				isOn: $loadRemote)
 		}
 		SettingsGroup(title: "Storage") {
-			SettingsPicker(
-				title: "Keep on this Mac",
-				options: [("Newest 50 per folder", 50), ("1,000 per folder", 1000), ("5,000 per folder", 5000), ("25,000 per folder", 25000), ("Everything", Int(UInt32.max))],
-				selection: $offlineDepth)
-			Text("Mail kept here opens, scrolls and searches without waiting for the server. Older mail is downloaded in the background after each sync.")
+			Text("Sync checks the newest 50 messages per folder. Older messages are cached as you browse. The unread filter shows mail already on this Mac.")
 				.font(Typography.meta).foregroundStyle(.secondary)
-				.padding(.horizontal, 14).padding(.bottom, 10)
+				.padding(.horizontal, 14).padding(.vertical, 10)
 		}
 		.onChange(of: appearance) { _, value in (AppAppearance(rawValue: value) ?? .system).apply() }
-		.onChange(of: offlineDepth) { _, value in store.setOfflineDepth(value) }
 	}
 }
 

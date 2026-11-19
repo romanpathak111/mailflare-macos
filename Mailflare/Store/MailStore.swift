@@ -302,7 +302,6 @@ final class MailStore {
 			quickReplies = QuickReplies(file: base.appendingPathComponent("quick-replies.json"))
 			let core = try MailCore(dataDir: base.path, credentials: KeychainCredentialStore())
 			core.setListener(listener: events)
-			core.setOfflineDepth(depth: UInt32(clamping: ReadingSettings.offlineDepth))
 			self.core = core
 		} catch {
 			banner = "Could not open the mail database (\(Self.dataDirectoryDescription)): \(describe(error))"
@@ -578,7 +577,6 @@ final class MailStore {
 		// Record what each inbox holds now, so only mail arriving after this is announced.
 		for a in accountList { checkNewMail(accountID: a.id) }
 		sync()
-		startPush()
 		startPolling()
 		// Nothing below is needed to show the inbox, so it waits for the first frame.
 		Task { [weak self] in
@@ -609,7 +607,6 @@ final class MailStore {
 	/// Signs out one saved account: the one in view the usual way, any other quietly in the background.
 	func signOut(_ target: Account) {
 		if target.id == account?.id { signOut(); return }
-		pushed.remove(target.id)
 		try? core?.signOut(accountId: target.id)
 		profiles.forget(target.id)
 		quickReplies.forget(account: target.id)
@@ -620,7 +617,7 @@ final class MailStore {
 
 	func signOut(notice: String? = nil) {
 		stopPolling()
-		if let id = account?.id { pushed.remove(id); try? core?.signOut(accountId: id); profiles.forget(id); quickReplies.forget(account: id); statuses.forget(account: id) }
+		if let id = account?.id { try? core?.signOut(accountId: id); profiles.forget(id); quickReplies.forget(account: id); statuses.forget(account: id) }
 		account = nil; mailboxes = []; identities = []; messages = []; detail = nil; selectedID = nil
 		compose = nil; minimizedDraft = nil; searchText = ""; settingsPage = nil
 		chat.reset()
@@ -872,46 +869,18 @@ final class MailStore {
 		banner = notice
 	}
 
-	/// Accounts the core keeps current by itself (IMAP IDLE), so they are polled only now and then.
-	@ObservationIgnored private var pushed: Set<String> = []
-	@ObservationIgnored private var lastPolled: [String: Date] = [:]
-	/// How long a pushed account goes between safety polls.
-	private let pushedPollInterval: TimeInterval = 600
-
-	/// Asks the core to hold a push connection for every account that can have one.
-	private func startPush() {
-		guard let core else { return }
-		for a in accountList where KeychainCredentialStore().load(accountId: a.id) != nil {
-			if core.startPush(accountId: a.id) { pushed.insert(a.id) }
-		}
-	}
-
+	/// Keep polling on schedule when the window is hidden, while allowing idle system sleep.
 	private func startPolling() {
-		pollTask?.cancel()
-		updatePollActivity()
+		stopPolling()
+		pollActivity = ProcessInfo.processInfo.beginActivity(
+			options: .userInitiatedAllowingIdleSystemSleep, reason: "Checking for new mail"
+		)
 		pollTask = Task { [weak self] in
 			while !Task.isCancelled {
-				// Only accounts without push need the minute: the rest are checked a few times an hour.
-				let interval = (self?.pollInterval ?? 60)
-				try? await Task.sleep(for: .seconds(interval), tolerance: .seconds(interval / 6))
-				self?.pollAll()
+				try? await Task.sleep(for: .seconds(60), tolerance: .seconds(10))
+				guard let self, !Task.isCancelled else { return }
+				self.pollAll()
 			}
-		}
-	}
-
-	private var pollInterval: Int { accountList.allSatisfy { pushed.contains($0.id) } ? Int(pushedPollInterval) : 60 }
-
-	/// Without this a hidden or occluded window is napped and the minute between polls can stretch
-	/// to many, so new mail would be announced late. It is held only while an account needs polling:
-	/// a pushed account is woken by its connection, so the app can nap like any idle one. Idle
-	/// system sleep is still allowed.
-	private func updatePollActivity() {
-		let needed = accountList.contains { !pushed.contains($0.id) }
-		if needed, pollActivity == nil {
-			pollActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Checking for new mail")
-		} else if !needed, let activity = pollActivity {
-			ProcessInfo.processInfo.endActivity(activity)
-			pollActivity = nil
 		}
 	}
 
@@ -922,22 +891,13 @@ final class MailStore {
 		pollActivity = nil
 	}
 
-	/// Whether an account is due a poll: always, unless its mail is pushed to it.
-	private func shouldPoll(_ id: String) -> Bool {
-		guard pushed.contains(id) else { return true }
-		guard Date().timeIntervalSince(lastPolled[id] ?? .distantPast) >= pushedPollInterval - 1 else { return false }
-		lastPolled[id] = Date()
-		return true
-	}
-
 	/// A quick sync of the account in view and of every other saved account, so mail for any of
 	/// them is noticed. Errors on the others are ignored; they show when that account is opened.
 	private func pollAll() {
-		updatePollActivity()
 		let current = account?.id
-		if let current, shouldPoll(current) { sync(quick: true) }
+		if current != nil { sync(quick: true) }
 		guard let core else { return }
-		for other in accountList where other.id != current && shouldPoll(other.id) && KeychainCredentialStore().load(accountId: other.id) != nil {
+		for other in accountList where other.id != current && KeychainCredentialStore().load(accountId: other.id) != nil {
 			let id = other.id
 			quietSyncs.insert(id)
 			Task {
@@ -1489,37 +1449,6 @@ final class MailStore {
 		}
 	}
 
-	// MARK: Unread mail beyond what is stored
-
-	/// When each folder's unread mail was last read from the server.
-	@ObservationIgnored private var unreadFetchedAt: [String: Date] = [:]
-	@ObservationIgnored private var unreadTask: Task<Void, Never>?
-	/// Unread mail is being read in from the server for the list in view.
-	private(set) var isFetchingUnread = false
-
-	/// The store holds the newest mail of each folder, so unread mail further back would be missing
-	/// from the unread filter while the sidebar, which counts on the server, includes it. Asks the
-	/// server for the unread mail of the folders in view (at most once a minute each), then lists again.
-	private func fetchUnreadIfNeeded(_ sources: [(account: String, folder: Folder)]) {
-		guard unreadOnly, let core else { return }
-		let now = Date()
-		let due = sources.filter { now.timeIntervalSince(unreadFetchedAt["\($0.account)|\($0.folder)"] ?? .distantPast) > 60 }
-		guard !due.isEmpty else { return }
-		for source in due { unreadFetchedAt["\(source.account)|\(source.folder)"] = now }
-		let context = listContext
-		unreadTask?.cancel()
-		isFetchingUnread = true
-		unreadTask = Task { [weak self] in
-			var fetched: UInt32 = 0
-			for source in due where !Task.isCancelled {
-				fetched += (try? await core.fetchUnread(accountId: source.account, folder: source.folder)) ?? 0
-			}
-			guard let self, !Task.isCancelled else { return }
-			self.isFetchingUnread = false
-			if fetched > 0, self.listContext == context { self.invalidateCaches(); self.reload() }
-		}
-	}
-
 	// MARK: Search
 
 	/// What the server found for a search, kept beside the stored mail it was found beyond.
@@ -1586,10 +1515,7 @@ final class MailStore {
 			} else if sidebar == .remindMe {
 				list = reminders.keys.compactMap { try? core.messageSummary(accountId: id, messageId: $0) }.filter(inScope).sorted { $0.receivedAt > $1.receivedAt }
 			} else if unreadOnly, let folder {
-				// Unread mail is asked of the store (and, once, of the server), not found by scanning the
-				// newest rows: the unread count counts mail older than anything stored here.
-				list = try core.unreadMessages(accountId: id, folder: folder, limit: 1000).filter(matchesSidebar)
-				fetchUnreadIfNeeded([(id, folder)])
+				list = try core.unreadMessages(accountId: id, folder: folder, limit: scanLimit).filter(matchesSidebar)
 			} else if let folder, !unreadOnly, statusFilter == .all || sidebar != .allInboxes {
 				let page = try fetch(id, folder, limit: UInt32(pageLimit))
 				list = page.list
@@ -1710,14 +1636,13 @@ final class MailStore {
 			} else {
 				for source in paged {
 					if unreadOnly, let core {
-						list += try core.unreadMessages(accountId: source.account, folder: source.folder, limit: 1000).map { tag($0, source.account) }
+						list += try core.unreadMessages(accountId: source.account, folder: source.folder, limit: scanLimit).map { tag($0, source.account) }
 						continue
 					}
 					let page = try fetch(source.account, source.folder, limit: filtered ? scanLimit : UInt32(pageLimit))
 					list += page.list.map { tag($0, source.account) }
 					count += page.count
 				}
-				if unreadOnly { fetchUnreadIfNeeded(paged) }
 				for source in scanned {
 					list += try fetch(source.account, source.folder, limit: scanLimit).list.filter { matches(source.account, $0) }.map { tag($0, source.account) }
 				}
@@ -1841,7 +1766,7 @@ final class MailStore {
 	var canLoadMore: Bool { messages.count < total || (!reachedEnd && !olderSources.isEmpty) }
 
 	/// The list is empty for now but mail is on its way, so it shows placeholder rows, not "No Messages".
-	var isAwaitingMail: Bool { messages.isEmpty && (isSyncing || isLoadingMore || isFetchingUnread || (canLoadMore && !loadMoreFailed)) }
+	var isAwaitingMail: Bool { messages.isEmpty && (isSyncing || isLoadingMore || (canLoadMore && !loadMoreFailed)) }
 
 	/// Starts the older-mail state over when the list is of something else.
 	private func resetOlderIfListChanged() {
@@ -2101,6 +2026,7 @@ final class MailStore {
 		refreshAdaptColors()
 		detailTask?.cancel()
 		markReadTask?.cancel()
+		prefetchTask?.cancel()
 		guard let id, let core else { return }
 		prefetchNeighbors(of: id)
 		if let m = messages.first(where: { $0.id == id }), !m.seen {
@@ -2123,23 +2049,19 @@ final class MailStore {
 	@ObservationIgnored private var prefetchTask: Task<Void, Never>?
 
 	private func prefetchNeighbors(of id: String) {
-		prefetchTask?.cancel()
 		prefetchTask = Task { [weak self] in
 			try? await Task.sleep(for: .milliseconds(150))
 			guard let self, !Task.isCancelled, let core = self.core,
 				  let index = self.messages.firstIndex(where: { $0.id == id }) else { return }
-			var byAccount: [String: [String]] = [:]
-			for message in self.messages[max(0, index - 1)...min(self.messages.count - 1, index + 4)] where message.id != id {
+			let neighbors = self.messages[max(0, index - 1)...min(self.messages.count - 1, index + 1)]
+			for message in neighbors where message.id != id {
+				guard !Task.isCancelled else { return }
 				let (account, raw) = self.owner(of: message.id)
-				byAccount[account, default: []].append(raw)
+				if (try? core.cachedMessage(accountId: account, messageId: raw)) == nil {
+					_ = try? await core.loadMessage(accountId: account, messageId: raw)
+				}
 			}
-			for (account, ids) in byAccount { try? await core.prefetchBodies(accountId: account, messageIds: ids) }
 		}
-	}
-
-	/// Changes how much mail of each folder the core keeps (and fills toward) on this Mac.
-	func setOfflineDepth(_ depth: Int) {
-		core?.setOfflineDepth(depth: UInt32(clamping: depth))
 	}
 
 	// MARK: Multiple selection

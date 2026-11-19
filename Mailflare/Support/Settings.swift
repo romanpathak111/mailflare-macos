@@ -82,10 +82,6 @@ enum ReadingSettings {
 	static let loadRemoteContentKey = "loadRemoteContent"
 	static let autoCheckUpdatesKey = "autoCheckUpdates"
 	static let showAvatarsKey = "showListAvatars"
-	static let offlineDepthKey = "offlineDepth"
-
-	/// How many messages of each folder are kept on this Mac for offline reading and search.
-	static var offlineDepth: Int { UserDefaults.standard.object(forKey: offlineDepthKey) as? Int ?? 1000 }
 
 	/// Whether the message list shows a sender avatar beside each row.
 	static var showAvatars: Bool { UserDefaults.standard.object(forKey: showAvatarsKey) as? Bool ?? true }
