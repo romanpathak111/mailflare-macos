@@ -51,7 +51,7 @@ struct TodayView: View {
 		let hour = Calendar.current.component(.hour, from: .now)
 		let part = hour < 12 ? "Good morning" : (hour < 18 ? "Good afternoon" : "Good evening")
 		guard let account = store.account else { return part }
-		let name = store.accountName(account).split(separator: " ").first.map(String.init) ?? ""
+		let name = firstName(of: store.accountName(account))
 		return name.isEmpty || name.contains("@") ? part : "\(part), \(name)"
 	}
 

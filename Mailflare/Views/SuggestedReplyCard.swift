@@ -99,7 +99,7 @@ struct SuggestedReplyCard: View {
 		for _ in 0..<40 where store.detail?.summary.id != message.id { try? await Task.sleep(for: .milliseconds(150)) }
 		let body = store.detail?.summary.id == message.id ? PreviewText.plain(store.detail?.html ?? "") : PreviewText.plain(message.preview)
 		let me = store.account.map(store.accountName) ?? ""
-		let firstName = me.split(separator: " ").first.map(String.init) ?? ""
+		let firstName = firstName(of: me)
 		let preferences = store.ai.writerInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
 		let messages: [[String: Any]] = [
 			["role": "system", "content": """

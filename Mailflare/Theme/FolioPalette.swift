@@ -83,6 +83,13 @@ extension ThreadStatus {
 	}
 }
 
+/// The first name in a display name, skipping a title: "Dr Roman Pathak" → "Roman".
+func firstName(of fullName: String) -> String {
+	let titles: Set<String> = ["dr", "mr", "mrs", "ms", "miss", "mx", "prof", "professor", "sir", "a/prof", "assoc"]
+	let words = fullName.split(separator: " ").map { String($0) }
+	return words.first { !titles.contains($0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))) } ?? ""
+}
+
 /// Initials in a circle, as the mockups draw senders: "Mira Chen" → "MC".
 struct InitialsAvatar: View {
 	var name: String
