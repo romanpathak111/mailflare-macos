@@ -1590,7 +1590,7 @@ final class MailStore {
 				// newest rows: the unread count counts mail older than anything stored here.
 				list = try core.unreadMessages(accountId: id, folder: folder, limit: 1000).filter(matchesSidebar)
 				fetchUnreadIfNeeded([(id, folder)])
-			} else if let folder, !unreadOnly {
+			} else if let folder, !unreadOnly, statusFilter == .all || sidebar != .allInboxes {
 				let page = try fetch(id, folder, limit: UInt32(pageLimit))
 				list = page.list
 				count = page.count
@@ -1699,7 +1699,7 @@ final class MailStore {
 			}
 		}
 
-		let filtered = !q.isEmpty || unreadOnly || !scanned.isEmpty
+		let filtered = !q.isEmpty || unreadOnly || !scanned.isEmpty || (sidebar == .allInboxes && statusFilter != .all)
 		var list: [MessageSummary] = []
 		var count = 0
 		do {

@@ -9,7 +9,7 @@ struct ReaderView: View {
 		if store.multiSelection.count > 1 {
 			EmptyStateView(icon: .inbox, title: "\(store.multiSelection.count) Messages Selected", message: "Right-click to archive, flag or delete them together.")
 				.background(AppTheme.background)
-		} else if let message = store.selectedMessage {
+		} else if let message = store.selectedMessage ?? (store.detail?.summary.id == store.selectedID ? store.detail?.summary : nil) {
 			MessageDetail(message: message).id(message.id)
 		} else {
 			EmptyStateView(icon: .inbox, title: "No Message Selected")

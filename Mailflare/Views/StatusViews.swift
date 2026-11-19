@@ -1,4 +1,5 @@
 import SwiftUI
+import MailflareCore
 
 /// A status as a small coloured dot.
 struct StatusDot: View {
