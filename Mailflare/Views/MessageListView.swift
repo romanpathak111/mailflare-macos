@@ -592,13 +592,15 @@ struct StatusFilterBar: View {
 	@Environment(MailStore.self) private var store
 
 	var body: some View {
+		// Scrolls sideways in a narrow list instead of cutting the names short.
+		ScrollView(.horizontal, showsIndicators: false) {
 		HStack(spacing: 6) {
 			ForEach(StatusFilter.allCases) { filter in
 				let selected = store.statusFilter == filter
 				Button {
 					store.statusFilter = filter
 				} label: {
-					Text(filter.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+					Text(filter.title).font(.system(size: 13, weight: .medium)).lineLimit(1).fixedSize()
 						.foregroundStyle(selected ? Folio.onDark : Folio.body)
 						.padding(.horizontal, 12).padding(.vertical, 7)
 						.background(Capsule().fill(selected ? Folio.dark : Folio.chip))
@@ -608,7 +610,9 @@ struct StatusFilterBar: View {
 			}
 			Spacer(minLength: 0)
 		}
-		.padding(.horizontal, 24).padding(.bottom, 16)
+		.padding(.horizontal, 24)
+		}
+		.padding(.bottom, 16)
 		.frame(maxWidth: .infinity, alignment: .leading)
 	}
 }
