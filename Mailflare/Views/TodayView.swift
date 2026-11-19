@@ -42,6 +42,7 @@ struct TodayView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
 		.background(Folio.card)
+		.task { Automation.shared.run(store) }
 	}
 
 	// MARK: Header
@@ -105,6 +106,7 @@ struct TodayView: View {
 				Text(connected ? "Assistant brief" : "Connect an assistant").font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink)
 				Text(cardText(connected: connected, needsReply: needsReply.count))
 					.font(.system(size: 14)).lineSpacing(2).foregroundStyle(Folio.body).fixedSize(horizontal: false, vertical: true)
+				SuggestionsLine().padding(.top, 6)
 			}
 			Spacer(minLength: 8)
 			if store.isSortingStatuses { ProgressView().controlSize(.small) }

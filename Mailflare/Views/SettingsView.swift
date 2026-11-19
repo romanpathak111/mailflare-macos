@@ -8,7 +8,21 @@ struct SettingsView: View {
 	var page: SettingsPage
 
 	var body: some View {
-		if page == .assistant {
+		if page == .accounts {
+			ScrollView {
+				VStack(alignment: .leading, spacing: 44) {
+					AccountsFoldersPage()
+					VStack(alignment: .leading, spacing: 14) {
+						Text("More settings").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
+						AccountSettings()
+					}
+				}
+				.frame(maxWidth: 900, alignment: .leading)
+				.padding(.horizontal, 72).padding(.top, 56).padding(.bottom, 40)
+				.frame(maxWidth: .infinity, alignment: .leading)
+			}
+			.background(Folio.card)
+		} else if page == .assistant {
 			// The Assistant page is laid out as in the mockup: a large title over the full width.
 			ScrollView {
 				AssistantSettingsPage()
@@ -336,14 +350,14 @@ private struct GeneralSettings: View {
 
 	var body: some View {
 		SettingsGroup(title: "Startup & Updates") {
-			SettingsToggle(title: "Open Mailflare at login", isOn: Binding(
+			SettingsToggle(title: "Open Folio at login", isOn: Binding(
 				get: { launchAtLogin },
 				set: { launchAtLogin = $0; if !LaunchAtLogin.set($0) { launchAtLogin = LaunchAtLogin.isEnabled } }
 			))
 			SettingsDivider()
 			SettingsToggle(
 				title: "Check for updates automatically",
-				detail: "New versions come from the Mailflare releases on GitHub.",
+				detail: "New versions come from the Folio releases on GitHub.",
 				isOn: $autoCheck)
 		}
 		SettingsGroup(title: "Appearance") {
@@ -406,18 +420,18 @@ private struct NotificationSettingsPage: View {
 
 	private var allowDetail: String {
 		switch store.notifier.authorization {
-		case .denied: "Turned off for Mailflare in System Settings. Turn it on there, then come back."
-		case .notDetermined: "Mailflare will ask macOS for permission."
-		default: "Alert on new mail in any account's inbox. Turning this off stops Mailflare's alerts; macOS's own setting stays as it is."
+		case .denied: "Turned off for Folio in System Settings. Turn it on there, then come back."
+		case .notDetermined: "Folio will ask macOS for permission."
+		default: "Alert on new mail in any account's inbox. Turning this off stops Folio's alerts; macOS's own setting stays as it is."
 		}
 	}
 
 	var body: some View {
-		SettingsGroup(title: "Notifications", footer: "Mailflare checks every account for new mail about once a minute while it is open. Each account can be muted on its page under Accounts.") {
+		SettingsGroup(title: "Notifications", footer: "Folio checks every account for new mail about once a minute while it is open. Each account can be muted on its page under Accounts.") {
 			SettingsToggle(title: "Allow notifications", detail: allowDetail, isOn: allowSwitch)
 			SettingsDivider()
 			SettingsRow {
-				Text("Banner style and sounds for Mailflare are also managed by macOS.")
+				Text("Banner style and sounds for Folio are also managed by macOS.")
 					.font(Typography.meta).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 				Spacer(minLength: 8)
 				Button("Open System Settings") { MailNotifier.openSystemSettings() }
@@ -870,6 +884,7 @@ private struct AssistantSettingsPage: View {
 	@AppStorage(AssistantSettings.draftRepliesKey) private var draftReplies = true
 	@AppStorage(AssistantSettings.todayBriefKey) private var todayBrief = true
 	@AppStorage(AssistantSettings.autoArchiveKey) private var autoArchive = false
+	@AppStorage(AssistantSettings.suggestFoldersKey) private var suggestFolders = true
 	@State private var modelCache: [String: [String]] = [:]
 	@State private var editing: AIProviderConfig?
 	@State private var editingIsNew = false
@@ -905,6 +920,7 @@ private struct AssistantSettingsPage: View {
 				Text("What the assistant does").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
 					.padding(.bottom, 12)
 				behaviour("Suggest a status for new mail", "Proposes Needs reply, Waiting, Can archive or Long-term value. You confirm.", $suggestStatus)
+				behaviour("Suggest folder rules", "Learns where you file mail and offers to file it for you. You approve each rule.", $suggestFolders)
 				behaviour("Draft replies", "Prepares a short reply for threads marked Needs reply.", $draftReplies)
 				behaviour("Write the Today brief", "Summarises what needs you and who is waiting on you each morning.", $todayBrief)
 				behaviour("Archive without asking", "Moves Can archive threads to Archive on its own. Off by default.", $autoArchive)
@@ -1343,10 +1359,10 @@ private struct LicenseSettings: View {
 }
 
 private struct SupportSettings: View {
-	private static let issuesURL = URL(string: "https://github.com/hieunc229/mailflare-macos/issues")!
+	private static let issuesURL = URL(string: "https://github.com/romanpathak111/mailflare-macos/issues")!
 
 	var body: some View {
-		SettingsGroup(title: "Need help?", footer: "Include your macOS version, the Mailflare version (see Version) and, for a bug, the steps that cause it. Please leave out passwords, API keys and private mail.") {
+		SettingsGroup(title: "Need help?", footer: "Include your macOS version, the Folio version (see Version) and, for a bug, the steps that cause it. Please leave out passwords, API keys and private mail.") {
 			VStack(alignment: .leading, spacing: 6) {
 				Text("Found a bug, or want a feature?").font(Typography.bodySemibold)
 				Text("Create an issue on GitHub and describe what happened or what you would like. Every report is read there.")
@@ -1357,7 +1373,7 @@ private struct SupportSettings: View {
 			SettingsRow {
 				Text("Issues").font(Typography.body)
 				Spacer(minLength: 16)
-				Text("github.com/hieunc229/mailflare-macos/issues").font(Typography.meta).foregroundStyle(.secondary)
+				Text("github.com/romanpathak111/mailflare-macos/issues").font(Typography.meta).foregroundStyle(.secondary)
 					.lineLimit(1).truncationMode(.middle).textSelection(.enabled)
 			}
 		}
@@ -1369,7 +1385,7 @@ private struct AboutSettings: View {
 	@Environment(AppUpdater.self) private var updater
 
 	var body: some View {
-		SettingsGroup(title: "Mailflare") {
+		SettingsGroup(title: "Folio", footer: "Folio is based on Mailflare by Hieu Nguyen (github.com/hieunc229/mailflare-macos) and, like it, is free software under the GNU Affero General Public License v3. Its source, with every change, is at github.com/romanpathak111/mailflare-macos.") {
 			SettingsRow {
 				Text("Version").font(Typography.body)
 				Spacer()

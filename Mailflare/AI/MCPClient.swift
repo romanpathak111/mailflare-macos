@@ -115,7 +115,7 @@ actor MCPConnection {
 		let id = nextID()
 		let reply = try await post([
 			"jsonrpc": "2.0", "id": id, "method": "initialize",
-			"params": ["protocolVersion": protocolVersion, "capabilities": [String: Any](), "clientInfo": ["name": "Mailflare", "version": "1"]],
+			"params": ["protocolVersion": protocolVersion, "capabilities": [String: Any](), "clientInfo": ["name": "Folio", "version": "1"]],
 		], id: id)
 		if let error = reply?["error"] as? [String: Any] {
 			throw AIError(message: (error["message"] as? String) ?? "The MCP server refused to start a session.")
@@ -142,6 +142,8 @@ actor MCPConnection {
 		if let sid = http.value(forHTTPHeaderField: "Mcp-Session-Id"), !sid.isEmpty { sessionID = sid }
 		switch http.statusCode {
 		case 200..<300: break
+		case 401 where (http.value(forHTTPHeaderField: "WWW-Authenticate") ?? "").contains("resource_metadata"):
+			throw AIError(message: "This MCP server signs in with OAuth (a browser sign-in), which Folio can't do itself. Add it to Codex or Claude Code, then switch it on under Settings → MCP Credentials.")
 		case 401, 403: throw AIError(message: "The MCP server rejected the credentials (status \(http.statusCode)).")
 		case 300..<400: throw AIError(message: "The MCP server redirected the request. Use its final address; credentials are never sent to a redirect.")
 		case 404 where sessionID != nil && ready: throw SessionExpired()

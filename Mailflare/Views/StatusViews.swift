@@ -73,6 +73,8 @@ struct StatusPicker: View {
 	/// What the rules make of this message, when it has no status and sits in the inbox.
 	private var suggestion: StatusAssistant.Suggestion? {
 		guard suggestsStatus, current == nil, store.role(of: message) == "inbox" else { return nil }
+		let parts = ViewMessageID.split(message.id)
+		if let found = Automation.shared.statusSuggestion(account: parts.account ?? store.account?.id ?? "", message: parts.message) { return found }
 		return StatusAssistant.guess(.init(id: message.id, from: message.sender.formatted, subject: message.subject, preview: PreviewText.plain(message.preview)))
 	}
 

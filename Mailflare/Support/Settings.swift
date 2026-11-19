@@ -11,7 +11,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 		switch self {
 		case .general: "Preferences"
 		case .notifications: "Notifications"
-		case .accounts: "Accounts"
+		case .accounts: "Accounts and folders"
 		case .assistant: "Assistant"
 		case .ai: "AI Providers"
 		case .mcp: "MCP Credentials"
@@ -52,7 +52,7 @@ enum SettingsSection: CaseIterable, Identifiable {
 	var pages: [SettingsPage] {
 		switch self {
 		case .general: [.general, .accounts, .notifications, .assistant, .ai, .mcp]
-		case .about: [.license, .support, .about]
+		case .about: [.support, .about]
 		}
 	}
 }
@@ -63,11 +63,14 @@ enum AssistantSettings {
 	static let draftRepliesKey = "assistant.draftReplies"
 	static let todayBriefKey = "assistant.todayBrief"
 	static let autoArchiveKey = "assistant.autoArchive"
+	static let suggestFoldersKey = "assistant.suggestFolders"
 
 	private static func flag(_ key: String, default value: Bool) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? value }
 
 	/// Suggest a status for the open message and when sorting new mail.
 	static var suggestStatus: Bool { flag(suggestStatusKey, default: true) }
+	/// Offer folder rules learned from where the user files mail.
+	static var suggestFolders: Bool { flag(suggestFoldersKey, default: true) }
 	/// Offer to draft a reply for conversations that need one.
 	static var draftReplies: Bool { flag(draftRepliesKey, default: true) }
 	/// Show the assistant's card on Today.

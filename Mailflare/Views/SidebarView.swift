@@ -124,7 +124,7 @@ struct SidebarView: View {
 		let activeView = store.activeView
 		let inbox = activeView != nil ? nil : (store.currentInbox ?? (multipleInboxes ? nil : store.inboxAddresses.first))
 		let title = activeView?.name ?? inbox.map { store.label($0) }
-			?? (store.account.map(store.switcherName) ?? "Mailflare")
+			?? (store.account.map(store.switcherName) ?? "Folio")
 		return Button {
 			withAnimation(.snappy(duration: 0.22)) { switcherOpen.toggle() }
 		} label: {

@@ -212,11 +212,8 @@ struct AIChatPanel: View {
 					}
 					// While a request is unfinished there is always a running task or "Thinking…" in view.
 					if chat.busy, chat.messages.last?.tools.contains(where: { $0.status == .running }) != true {
-						HStack(spacing: 6) {
-							ProgressView().controlSize(.mini).frame(width: 12, height: 12)
-							Text("Thinking…").font(Typography.body).foregroundStyle(.secondary).lineSpacing(Typography.chatLineSpacing)
-						}
-						.padding(.top, 8)
+						ThinkingLine(provider: store.ai.active.map { $0.preset.localCLI.map { "\($0.title) on this Mac" } ?? $0.name })
+							.padding(.top, 8)
 					}
 					Color.clear.frame(height: 1).id("bottom")
 				}
@@ -409,7 +406,8 @@ struct AIChatPanel: View {
 	}
 
 	private func send(_ text: String) {
-		guard !chat.busy, canSend else { return }
+		// The text passed in, not only the box: a starter prompt is sent with the box empty.
+		guard !chat.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
 		chat.send(MarkdownInput.markdown(from: text), attachments: attachments, store: store)
 		input = ""
 		attachments = []
@@ -1071,5 +1069,24 @@ private struct QuoteBlock: View {
 		.padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 10)
 		.background(AppTheme.composerContextFill.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 		.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+	}
+}
+
+
+/// "Thinking… 12s · Codex on this Mac": a local assistant can take half a minute when it reads mail,
+/// so the wait is shown as it runs rather than looking stuck.
+private struct ThinkingLine: View {
+	var provider: String?
+	@State private var started = Date()
+
+	var body: some View {
+		TimelineView(.periodic(from: .now, by: 1)) { context in
+			let seconds = Int(context.date.timeIntervalSince(started))
+			HStack(spacing: 6) {
+				ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+				Text("Thinking… \(seconds)s").font(Typography.body).foregroundStyle(.secondary).monospacedDigit()
+				if let provider { Text("· \(provider)").font(Typography.meta).foregroundStyle(.tertiary).lineLimit(1) }
+			}
+		}
 	}
 }

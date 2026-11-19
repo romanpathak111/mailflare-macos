@@ -37,7 +37,7 @@ final class MailStore {
 	/// Shown quietly in the sidebar when the server can't be reached; saved mail stays usable.
 	var connectionNote: String?
 
-	@ObservationIgnored private var core: MailCore?
+	@ObservationIgnored private(set) var core: MailCore?
 	@ObservationIgnored private let events = CoreEvents()
 	var account: Account?
 	var mailboxes: [Mailbox] = []
@@ -46,7 +46,7 @@ final class MailStore {
 	var inboxUnread = 0
 	/// The address mailbox the sidebar is scoped to; nil means all inboxes.
 	var scopeID: String? = UserDefaults.standard.string(forKey: "scopeInbox")
-	var brandName = "Mailflare"
+	var brandName = "Folio"
 	/// A licensed server's branding follows the app across accounts; otherwise the account's own.
 	var displayBrandName: String { license.brandName ?? brandName }
 	let license = LicenseManager()
@@ -639,7 +639,7 @@ final class MailStore {
 		chat.reset()
 		// VIPs and reminders belong to the account that was signed in.
 		vips = []; reminders = [:]
-		scopeID = nil; brandName = "Mailflare"
+		scopeID = nil; brandName = "Folio"
 		license.retain(accountIDs: (try? core?.accounts().map(\.id)) ?? [])
 		UserDefaults.standard.removeObject(forKey: "scopeInbox")
 		UserDefaults.standard.removeObject(forKey: "vips")
@@ -1285,12 +1285,12 @@ final class MailStore {
 	func loadBrand() {
 		guard let account else { return }
 		let key = "brand.\(account.id)"
-		brandName = UserDefaults.standard.string(forKey: key) ?? "Mailflare"
+		brandName = UserDefaults.standard.string(forKey: key) ?? "Folio"
 		let id = account.id
 		Task {
 			guard let json = await Self.fetchBranding(of: account), self.account?.id == id else { return }
 			guard let name = json["appName"] as? String else { return }
-			brandName = name.isEmpty ? "Mailflare" : name
+			brandName = name.isEmpty ? "Folio" : name
 			UserDefaults.standard.set(brandName, forKey: key)
 		}
 	}
@@ -1394,7 +1394,7 @@ final class MailStore {
 		}
 		switch sidebar {
 		case .mailbox(let id):
-			guard let box = mailbox(id) else { return "Mailflare" }
+			guard let box = mailbox(id) else { return "Folio" }
 			let parent = box.parentId.flatMap(mailbox)?.name ?? ""
 			return parent.isEmpty ? box.name : "\(box.name) — \(parent)"
 		case .allInboxes: return scopedTitle("Inbox", all: "Inboxes")
@@ -1407,7 +1407,7 @@ final class MailStore {
 		case .allTrash: return scopedTitle("Trash", all: "Trash")
 		case .allArchive: return scopedTitle("Archive", all: "Archive")
 		case .smartToday: return "Unread Today"
-		case .customTab(let id): return customTab(id)?.name ?? "Mailflare"
+		case .customTab(let id): return customTab(id)?.name ?? "Folio"
 		}
 	}
 
@@ -1694,7 +1694,7 @@ final class MailStore {
 	@ObservationIgnored private var listCache: [String: (limit: UInt32, list: [MessageSummary], count: Int)] = [:]
 	@ObservationIgnored private var mailboxCache: [String: [Mailbox]] = [:]
 
-	private func invalidateCaches() {
+	func invalidateCaches() {
 		mailRevision += 1
 		dropCaches()
 	}
@@ -1738,10 +1738,12 @@ final class MailStore {
 			if pending.names, let current = self.account { self.loadNames(for: current) }
 			for id in pending.newMail { self.checkNewMail(accountID: id) }
 			if pending.list { self.reload() }
+			// New mail: file what the folder rules cover and look for suggestions.
+			if !pending.newMail.isEmpty { Automation.shared.run(self) }
 		}
 	}
 
-	private func fetch(_ accountID: String, _ folder: Folder, limit: UInt32) throws -> (list: [MessageSummary], count: Int) {
+	func fetch(_ accountID: String, _ folder: Folder, limit: UInt32) throws -> (list: [MessageSummary], count: Int) {
 		guard let core else { return ([], 0) }
 		let key = "\(accountID)|\(folder)"
 		if let hit = listCache[key], hit.limit >= limit { return (Array(hit.list.prefix(Int(limit))), hit.count) }
@@ -1971,6 +1973,7 @@ final class MailStore {
 			if let status {
 				let summary = messages.first { $0.id == id } ?? (detail?.summary.id == id ? detail?.summary : nil)
 				statuses.set(status, account: acct, message: raw, summary: summary, ask: ask, due: due)
+				Automation.shared.resolved(account: acct, message: raw)
 			} else {
 				statuses.remove(account: acct, message: raw)
 			}

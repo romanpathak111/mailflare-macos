@@ -10,7 +10,7 @@ import Observation
 @MainActor
 @Observable
 final class AccountProfiles {
-	static let defaultSignature = "Sent from Mailflare Desktop"
+	static let defaultSignature = "Sent from Folio"
 
 	private struct Entry: Codable {
 		var name: String?

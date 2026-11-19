@@ -5,6 +5,8 @@ import SwiftUI
 /// it again once saved.
 struct MCPSettingsPage: View {
 	@Environment(MailStore.self) private var store
+	/// Bumped when a local server is switched, so the rows redraw.
+	@State private var localRevision = 0
 	@State private var editing: MCPServer?
 	@State private var editingIsNew = false
 	@State private var secret = ""
@@ -12,6 +14,7 @@ struct MCPSettingsPage: View {
 	private var mcp: MCPStore { store.mcp }
 
 	var body: some View {
+		localServers
 		SettingsGroup(
 			title: "MCP Servers",
 			footer: "The assistant uses these servers to look things up and act in other services. Tokens and keys are stored in your Keychain on this Mac and are never sent to the AI provider. You can also paste credentials into the assistant chat. The assistant asks before it runs a tool that could change data."
@@ -170,6 +173,39 @@ private struct MCPServerEditor: View {
 		} catch {
 			messageIsError = true
 			message = error.localizedDescription
+		}
+	}
+}
+
+
+extension MCPSettingsPage {
+	/// The servers set up in the CLI the assistant runs through: switch on the ones it may use.
+	@ViewBuilder
+	var localServers: some View {
+		let _ = localRevision
+		if let cli = store.ai.active?.preset.localCLI {
+			let names = LocalMCP.servers(for: cli)
+			let on = LocalMCP.enabled(for: cli)
+			SettingsGroup(
+				title: "From \(cli.title) on this Mac",
+				footer: "These servers are already set up in \(cli.title). Switch on the ones the assistant may use from \(store.displayBrandName); their tools then run without asking, so leave off any that can send messages or change data unless you want that. They are used in the assistant chat, not for summaries or sorting."
+			) {
+				if names.isEmpty {
+					SettingsRow {
+						Text("\(cli.title) has no MCP servers set up.").font(Typography.body).foregroundStyle(.secondary)
+						Spacer()
+					}
+				}
+				ForEach(Array(names.enumerated()), id: \.element) { index, name in
+					if index > 0 { SettingsDivider() }
+					SettingsRow {
+						Text(name).font(Typography.body)
+						Spacer(minLength: 8)
+						Toggle("", isOn: Binding(get: { on.contains(name) }, set: { LocalMCP.set(name, on: $0, for: cli); localRevision += 1 }))
+							.labelsHidden().toggleStyle(.switch)
+					}
+				}
+			}
 		}
 	}
 }

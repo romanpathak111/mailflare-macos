@@ -23,7 +23,7 @@ final class AppUpdater {
 		case failed(String)
 	}
 
-	static let repository = "hieunc229/mailflare-macos"
+	static let repository = "romanpathak111/mailflare-macos"
 	private static let checkInterval: Duration = .seconds(6 * 60 * 60)
 
 	/// The newer release, once a check found one.
@@ -50,7 +50,7 @@ final class AppUpdater {
 				available = release
 			} else {
 				available = nil
-				if userInitiated { alert("Mailflare is up to date", "Version \(Self.currentVersion) is the latest.") }
+				if userInitiated { alert("Folio is up to date", "Version \(Self.currentVersion) is the latest.") }
 			}
 		} catch {
 			if userInitiated { alert("Could not check for updates", error.localizedDescription) }
@@ -65,7 +65,7 @@ final class AppUpdater {
 		#endif
 		var request = URLRequest(url: url)
 		request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-		request.setValue("Mailflare/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+		request.setValue("Folio/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 		request.cachePolicy = .reloadIgnoringLocalCacheData
 		let (data, response) = try await URLSession.shared.data(for: request)
 		let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -117,10 +117,10 @@ final class AppUpdater {
 		let appURL = Bundle.main.bundleURL
 		do {
 			guard !appURL.path.contains("/AppTranslocation/") else {
-				throw UpdateError("Move Mailflare to the Applications folder, open it from there, then update.")
+				throw UpdateError("Move Folio to the Applications folder, open it from there, then update.")
 			}
 			guard FileManager.default.isWritableFile(atPath: appURL.deletingLastPathComponent().path) else {
-				throw UpdateError("Mailflare can't write to \(appURL.deletingLastPathComponent().path).")
+				throw UpdateError("Folio can't write to \(appURL.deletingLastPathComponent().path).")
 			}
 			phase = .downloading
 			// A scratch folder on the app's own volume, so the final swap is a rename.
@@ -154,14 +154,14 @@ final class AppUpdater {
 				return app
 			}
 		}
-		throw UpdateError("The update doesn't contain Mailflare.app.")
+		throw UpdateError("The update doesn't contain Folio.app.")
 	}
 
 	/// The new app must be the same app (bundle identifier) and satisfy the running app's
 	/// designated requirement, i.e. be signed by the same developer.
 	private static func verify(_ app: URL) throws {
 		guard let bundle = Bundle(url: app), bundle.bundleIdentifier == Bundle.main.bundleIdentifier else {
-			throw UpdateError("The update is not Mailflare.")
+			throw UpdateError("The update is not Folio.")
 		}
 		var selfCode: SecCode?
 		var selfStatic: SecStaticCode?
@@ -172,7 +172,7 @@ final class AppUpdater {
 			SecCodeCopyDesignatedRequirement(selfStatic, [], &requirement) == errSecSuccess,
 			SecStaticCodeCreateWithPath(app as CFURL, [], &staticCode) == errSecSuccess, let staticCode,
 			SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate), requirement) == errSecSuccess
-		else { throw UpdateError("The update's code signature doesn't match this copy of Mailflare.") }
+		else { throw UpdateError("The update's code signature doesn't match this copy of Folio.") }
 	}
 
 	/// Opens the new copy once this process has exited, then quits.
