@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The colours of the Folio mockups (Today, Inbox, Status board, Assistant, Accounts), so every
+/// The colours of the SuperMail mockups (Today, Inbox, Status board, Assistant, Accounts), so every
 /// screen draws from the same values. Dark mode has matching shades.
 enum Folio {
 	static let ink = AppTheme.adaptive(dark: 0xF1F3F7, light: NSColor(rgb: 0x12141A))

@@ -46,7 +46,7 @@ final class MailStore {
 	var inboxUnread = 0
 	/// The address mailbox the sidebar is scoped to; nil means all inboxes.
 	var scopeID: String? = UserDefaults.standard.string(forKey: "scopeInbox")
-	var brandName = "Folio"
+	var brandName = "SuperMail"
 	/// A licensed server's branding follows the app across accounts; otherwise the account's own.
 	var displayBrandName: String { license.brandName ?? brandName }
 	let license = LicenseManager()
@@ -639,7 +639,7 @@ final class MailStore {
 		chat.reset()
 		// VIPs and reminders belong to the account that was signed in.
 		vips = []; reminders = [:]
-		scopeID = nil; brandName = "Folio"
+		scopeID = nil; brandName = "SuperMail"
 		license.retain(accountIDs: (try? core?.accounts().map(\.id)) ?? [])
 		UserDefaults.standard.removeObject(forKey: "scopeInbox")
 		UserDefaults.standard.removeObject(forKey: "vips")
@@ -1285,12 +1285,12 @@ final class MailStore {
 	func loadBrand() {
 		guard let account else { return }
 		let key = "brand.\(account.id)"
-		brandName = UserDefaults.standard.string(forKey: key) ?? "Folio"
+		brandName = UserDefaults.standard.string(forKey: key) ?? "SuperMail"
 		let id = account.id
 		Task {
 			guard let json = await Self.fetchBranding(of: account), self.account?.id == id else { return }
 			guard let name = json["appName"] as? String else { return }
-			brandName = name.isEmpty ? "Folio" : name
+			brandName = name.isEmpty ? "SuperMail" : name
 			UserDefaults.standard.set(brandName, forKey: key)
 		}
 	}
@@ -1394,7 +1394,7 @@ final class MailStore {
 		}
 		switch sidebar {
 		case .mailbox(let id):
-			guard let box = mailbox(id) else { return "Folio" }
+			guard let box = mailbox(id) else { return "SuperMail" }
 			let parent = box.parentId.flatMap(mailbox)?.name ?? ""
 			return parent.isEmpty ? box.name : "\(box.name) — \(parent)"
 		case .allInboxes: return scopedTitle("Inbox", all: "Inboxes")
@@ -1407,7 +1407,7 @@ final class MailStore {
 		case .allTrash: return scopedTitle("Trash", all: "Trash")
 		case .allArchive: return scopedTitle("Archive", all: "Archive")
 		case .smartToday: return "Unread Today"
-		case .customTab(let id): return customTab(id)?.name ?? "Folio"
+		case .customTab(let id): return customTab(id)?.name ?? "SuperMail"
 		}
 	}
 
@@ -1950,7 +1950,17 @@ final class MailStore {
 		let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
 		var list: [MessageSummary] = []
 		for record in statuses.records(with: status) where accountList.contains(where: { $0.id == record.accountID }) {
-			guard var summary = try? core.messageSummary(accountId: record.accountID, messageId: record.messageID) else { continue }
+			var found = try? core.messageSummary(accountId: record.accountID, messageId: record.messageID)
+			if found == nil, let thread = record.threadID, !thread.isEmpty, !record.subject.isEmpty {
+				// Moved (a folder rule, or filed by hand) and given a new id by the server: find it again by
+				// its conversation, and keep the record with it.
+				let hits = (try? core.search(accountId: record.accountID, query: record.subject, limit: 25)) ?? []
+				if let moved = hits.first(where: { $0.threadId == thread }) {
+					statuses.rekey(account: record.accountID, from: record.messageID, to: moved)
+					found = moved
+				}
+			}
+			guard var summary = found else { continue }
 			summary.id = listedID(record)
 			if !q.isEmpty {
 				let haystack = "\(summary.subject) \(summary.fromName) \(summary.fromEmail) \(summary.preview)".lowercased()

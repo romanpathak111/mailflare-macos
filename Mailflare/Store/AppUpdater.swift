@@ -50,7 +50,7 @@ final class AppUpdater {
 				available = release
 			} else {
 				available = nil
-				if userInitiated { alert("Folio is up to date", "Version \(Self.currentVersion) is the latest.") }
+				if userInitiated { alert("SuperMail is up to date", "Version \(Self.currentVersion) is the latest.") }
 			}
 		} catch {
 			if userInitiated { alert("Could not check for updates", error.localizedDescription) }
@@ -65,7 +65,7 @@ final class AppUpdater {
 		#endif
 		var request = URLRequest(url: url)
 		request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-		request.setValue("Folio/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+		request.setValue("SuperMail/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 		request.cachePolicy = .reloadIgnoringLocalCacheData
 		let (data, response) = try await URLSession.shared.data(for: request)
 		let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -117,10 +117,10 @@ final class AppUpdater {
 		let appURL = Bundle.main.bundleURL
 		do {
 			guard !appURL.path.contains("/AppTranslocation/") else {
-				throw UpdateError("Move Folio to the Applications folder, open it from there, then update.")
+				throw UpdateError("Move SuperMail to the Applications folder, open it from there, then update.")
 			}
 			guard FileManager.default.isWritableFile(atPath: appURL.deletingLastPathComponent().path) else {
-				throw UpdateError("Folio can't write to \(appURL.deletingLastPathComponent().path).")
+				throw UpdateError("SuperMail can't write to \(appURL.deletingLastPathComponent().path).")
 			}
 			phase = .downloading
 			// A scratch folder on the app's own volume, so the final swap is a rename.

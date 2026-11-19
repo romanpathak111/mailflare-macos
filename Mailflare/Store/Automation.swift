@@ -21,7 +21,7 @@ struct FolderRule: Codable, Identifiable, Equatable {
 	}
 }
 
-/// A folder rule Folio thinks would help, from where mail from the same domain was filed before.
+/// A folder rule SuperMail thinks would help, from where mail from the same domain was filed before.
 struct RuleSuggestion: Identifiable, Equatable {
 	var accountID: String
 	var folderID: String
@@ -34,7 +34,7 @@ struct RuleSuggestion: Identifiable, Equatable {
 	var id: String { "\(accountID)|\(domain)" }
 }
 
-/// A status Folio suggests for one inbox message; nothing changes until it is accepted.
+/// A status SuperMail suggests for one inbox message; nothing changes until it is accepted.
 struct StatusSuggestion: Identifiable {
 	var accountID: String
 	var summary: MessageSummary
@@ -107,7 +107,12 @@ final class Automation {
 			let accountRules = (rule.map { [$0] } ?? rules).filter { $0.accountID == accountID }
 			guard let inbox = try? store.fetch(accountID, .role(role: "inbox"), limit: 300).list else { continue }
 			for r in accountRules {
-				let ids = inbox.filter(r.matches).map(\.id)
+				// Conversations waiting on the user (or on a reply) stay in the inbox where they are seen.
+				let ids = inbox.filter { m in
+					guard r.matches(m) else { return false }
+					let status = store.statuses.status(account: accountID, message: m.id, thread: m.threadId)
+					return status != .needsReply && status != .waiting
+				}.map(\.id)
 				guard !ids.isEmpty else { continue }
 				if (try? core.moveMessages(accountId: accountID, messageIds: ids, target: .mailbox(id: r.folderID))) != nil { moved += ids.count }
 			}

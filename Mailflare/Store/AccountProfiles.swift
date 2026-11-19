@@ -10,7 +10,7 @@ import Observation
 @MainActor
 @Observable
 final class AccountProfiles {
-	static let defaultSignature = "Sent from Folio"
+	static let defaultSignature = "Sent from SuperMail"
 
 	private struct Entry: Codable {
 		var name: String?

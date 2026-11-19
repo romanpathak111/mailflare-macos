@@ -177,9 +177,9 @@ enum LocalCLIPrompt {
 
 		if !tools.isEmpty { system.append(toolInstructions(tools)) }
 		system.append("""
-		You are running inside the Folio email app, not in a terminal or code project. \
+		You are running inside the SuperMail email app, not in a terminal or code project. \
 		Do not use any built-in tools of your own: do not run commands, read or write files, or browse the web. \
-		Everything you need comes from the conversation\(tools.isEmpty ? "" : " and the Folio tools above").
+		Everything you need comes from the conversation\(tools.isEmpty ? "" : " and the SuperMail tools above").
 		""")
 
 		let prompt: String
@@ -207,15 +207,15 @@ enum LocalCLIPrompt {
 			return "- \(name): \(description)\n  parameters (JSON Schema): \(parameters)"
 		}.joined(separator: "\n")
 		return """
-		# Folio tools
+		# SuperMail tools
 
-		You can use these tools, which Folio runs for you:
+		You can use these tools, which SuperMail runs for you:
 		\(list)
 
 		To use tools, end your reply with one or more blocks in exactly this form, one per call:
 		\(openTag){"name": "tool_name", "arguments": {"key": "value"}}\(closeTag)
 		The arguments must be a valid JSON object that matches the tool's parameters. You may write a short sentence before the blocks, but nothing after them. \
-		Folio then runs the tools and sends you their results in <tool_result> blocks, and you continue. \
+		SuperMail then runs the tools and sends you their results in <tool_result> blocks, and you continue. \
 		Never write a <tool_result> yourself and never guess what a tool would return. When you need no tool, just answer.
 		"""
 	}
@@ -345,7 +345,7 @@ struct LocalCLIClient {
 						if mcpOn.isEmpty {
 							args += ["--strict-mcp-config", "--setting-sources", ""]
 						} else {
-							// The user's own servers load; only the ones switched on in Folio may be used.
+							// The user's own servers load; only the ones switched on in SuperMail may be used.
 							args += ["--allowedTools"] + mcpOn.sorted().map(LocalMCP.claudeToolPrefix)
 							let off = Set(LocalMCP.servers(for: .claude)).subtracting(mcpOn)
 							if !off.isEmpty { args += ["--disallowedTools"] + off.sorted().map(LocalMCP.claudeToolPrefix) }
@@ -396,7 +396,7 @@ struct LocalCLIClient {
 						if mcpOn.isEmpty || quick {
 							args.insert("--ignore-user-config", at: 1)
 						} else {
-							// The user's config loads with its MCP servers: those switched on in Folio may run
+							// The user's config loads with its MCP servers: those switched on in SuperMail may run
 							// their tools without a prompt (there is none in exec), the rest are turned off.
 							for name in allServers {
 								let key = LocalMCP.tomlKey(name)

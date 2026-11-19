@@ -140,6 +140,15 @@ final class StatusStore {
 		}
 	}
 
+	/// A message moved and came back from the server under a new id: its record follows it.
+	func rekey(account: String, from old: String, to new: MessageSummary) {
+		guard old != new.id, var record = records.removeValue(forKey: Self.key(account: account, message: old)) else { return }
+		record.messageID = new.id
+		record.fill(from: new)
+		records[Self.key(account: account, message: new.id)] = record
+		save()
+	}
+
 	func remove(account: String, message: String) {
 		guard records.removeValue(forKey: Self.key(account: account, message: message)) != nil else { return }
 		save()

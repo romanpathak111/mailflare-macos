@@ -95,7 +95,7 @@ struct SidebarView: View {
 	/// The app's name, as the mockup sets "folio", with New Message at the other end.
 	private var wordmark: some View {
 		HStack(spacing: 8) {
-			Text(store.displayBrandName.lowercased())
+			Text(store.displayBrandName)
 				.font(.system(size: 24, weight: .bold)).tracking(-0.7).foregroundStyle(Folio.ink).lineLimit(1)
 			Spacer(minLength: 0)
 			Button { store.newMessage() } label: {
@@ -124,7 +124,7 @@ struct SidebarView: View {
 		let activeView = store.activeView
 		let inbox = activeView != nil ? nil : (store.currentInbox ?? (multipleInboxes ? nil : store.inboxAddresses.first))
 		let title = activeView?.name ?? inbox.map { store.label($0) }
-			?? (store.account.map(store.switcherName) ?? "Folio")
+			?? (store.account.map(store.switcherName) ?? "SuperMail")
 		return Button {
 			withAnimation(.snappy(duration: 0.22)) { switcherOpen.toggle() }
 		} label: {

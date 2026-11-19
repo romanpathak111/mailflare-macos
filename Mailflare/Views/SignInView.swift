@@ -160,7 +160,7 @@ struct SignInView: View {
 	@ViewBuilder
 	private var hint: some View {
 		if usesOAuth {
-			Text("You'll sign in on \(provider.name)'s own page. Folio never sees your password.")
+			Text("You'll sign in on \(provider.name)'s own page. SuperMail never sees your password.")
 				.font(Typography.meta).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 		} else if usesIMAP {
 			Text("Gmail, iCloud, Yahoo and most other providers need an app password here, not your account password.")
@@ -325,7 +325,7 @@ struct SignInView: View {
 	private func submit() {
 		guard canSubmit, !busy else { return }
 		busy = true; error = nil; store.banner = nil
-		let device = "Folio (\(Host.current().localizedName ?? "Mac"))"
+		let device = "SuperMail (\(Host.current().localizedName ?? "Mac"))"
 		Task {
 			defer { busy = false }
 			do {
