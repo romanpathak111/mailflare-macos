@@ -19,7 +19,7 @@ struct TodayView: View {
 				tiles
 				if showsAssistant { assistantCard(needsReply: needsReply) }
 				if needsReply.isEmpty && waiting.isEmpty {
-					emptyNote
+					emptyNote(sorted: !statuses.records.isEmpty)
 				} else {
 					if !needsReply.isEmpty {
 						section("Needs your reply", status: .needsReply, records: needsReply)
@@ -140,10 +140,11 @@ struct TodayView: View {
 		}
 	}
 
-	private var emptyNote: some View {
+	private func emptyNote(sorted: Bool) -> some View {
 		VStack(alignment: .leading, spacing: 6) {
-			Text("Nothing is sorted yet").font(Typography.bodySemibold)
-			Text("Open a message and choose a status above it, or press Sort unsorted mail. Conversations that need you will show up here.")
+			Text(sorted ? "You're caught up" : "Nothing is sorted yet").font(Typography.bodySemibold)
+			Text(sorted ? "Nothing needs your reply and nobody is holding you up. The Status board has the rest."
+				 : "Open a message and choose a status above it, or press Sort unsorted mail. Conversations that need you will show up here.")
 				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)

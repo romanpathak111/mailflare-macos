@@ -422,7 +422,7 @@ struct MessageRow: View {
 				Text(MailDate.list(message.date))
 					.font(Typography.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
 				// The conversation's status, as the same dot the sidebar and the board use.
-				if let status = store.status(of: message.id) {
+				if let status = store.status(of: message) {
 					StatusDot(status: status, size: 8).help(status.title)
 				}
 				// In a unified list, the inbox the message is in follows its date.

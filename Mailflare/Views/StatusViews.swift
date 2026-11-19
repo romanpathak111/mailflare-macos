@@ -66,7 +66,8 @@ struct StatusPicker: View {
 	@AppStorage(AssistantSettings.suggestStatusKey) private var suggestsStatus = true
 	@AppStorage(AssistantSettings.draftRepliesKey) private var draftsReplies = true
 
-	private var current: ThreadStatus? { store.status(of: message.id) }
+	private var current: ThreadStatus? { store.status(of: message) }
+	private var dueToday: Bool { store.statusRecord(of: message.id)?.isDueToday ?? false }
 
 	/// What the rules make of this message, when it has no status and sits in the inbox.
 	private var suggestion: StatusAssistant.Suggestion? {
@@ -81,7 +82,7 @@ struct StatusPicker: View {
 				HStack(spacing: 6) {
 					Text("Looks like").font(Typography.notice).foregroundStyle(.secondary)
 					StatusChip(status: suggestion.status)
-					Button("Accept") { withAnimation(.snappy(duration: 0.2)) { store.setStatus(suggestion.status, for: message.id) } }
+					Button("Accept") { withAnimation(.snappy(duration: 0.2)) { store.setStatus(suggestion.status, for: [message.id], due: suggestion.due) } }
 						.buttonStyle(.light).font(Typography.notice.weight(.semibold)).foregroundStyle(Color.accentColor)
 				}
 				.transition(.opacity)
@@ -123,6 +124,12 @@ struct StatusPicker: View {
 				DropdownCard(width: 220, anchor: .topLeading) {
 					ForEach(ThreadStatus.allCases) { status in
 						StatusMenuRow(status: status, isSelected: status == current) { choose(status) }
+					}
+					if current == .needsReply {
+						DropdownDivider()
+						DropdownRow(label: "Due today", icon: .clock, isSelected: dueToday) {
+							withAnimation(.snappy(duration: 0.2)) { isOpen = false; store.setDueToday(!dueToday, for: message.id) }
+						}
 					}
 					if current != nil {
 						DropdownDivider()

@@ -15,7 +15,9 @@ struct ThreadRecord: Codable, Identifiable, Hashable {
 	var receivedAt: Date
 	/// When the status was given: how long a thread has been waiting counts from here.
 	var statusAt: Date
-	/// Set by the assistant when a reply is due on a given day.
+	/// The conversation the message belongs to, so one conversation never sits in two columns.
+	var threadID: String?
+	/// Set by the assistant (or by hand) when a reply is due on a given day.
 	var due: Date?
 	/// The assistant's one-line reason or ask ("Confirm Friday's session").
 	var ask: String?
@@ -23,11 +25,17 @@ struct ThreadRecord: Codable, Identifiable, Hashable {
 	var id: String { StatusStore.key(account: accountID, message: messageID) }
 	var senderDisplay: String { fromName.isEmpty ? fromEmail : fromName }
 
+	/// When the wait began: for mail that needs a reply, when it arrived (however late it was sorted);
+	/// for a conversation waiting on someone else, when the status was given, which is when the reply went out.
+	var since: Date { status == .needsReply ? min(receivedAt, statusAt) : statusAt }
+
+	var isDueToday: Bool { status == .needsReply && (due.map { Calendar.current.isDateInToday($0) } ?? false) }
+
 	/// "3 days", "Yesterday", "Due today": what Today shows at the end of a row.
 	func age(now: Date = .now) -> String {
 		let calendar = Calendar.current
 		if status == .needsReply, let due, calendar.isDate(due, inSameDayAs: now) { return "Due today" }
-		let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: statusAt), to: calendar.startOfDay(for: now)).day ?? 0
+		let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: since), to: calendar.startOfDay(for: now)).day ?? 0
 		switch days {
 		case ..<1: return "Today"
 		case 1: return "Yesterday"
@@ -73,6 +81,22 @@ final class StatusStore {
 
 	func record(account: String, message: String) -> ThreadRecord? { records[Self.key(account: account, message: message)] }
 
+	/// The status of the conversation a message is in: its own, or the one given to another message of the thread.
+	func status(account: String, message: String, thread: String?) -> ThreadStatus? {
+		if let own = status(account: account, message: message) { return own }
+		guard let thread, !thread.isEmpty else { return nil }
+		return records.values.first { $0.accountID == account && $0.threadID == thread }?.status
+	}
+
+	/// Sets or clears the day a reply is due.
+	func setDue(_ due: Date?, account: String, message: String) {
+		let key = Self.key(account: account, message: message)
+		guard var record = records[key] else { return }
+		record.due = due
+		records[key] = record
+		save()
+	}
+
 	/// The conversations with `status`: the ones due first, then the longest waiting.
 	func records(with status: ThreadStatus) -> [ThreadRecord] {
 		records.values.filter { $0.status == status }.sorted { a, b in
@@ -80,7 +104,7 @@ final class StatusStore {
 			case let (x?, y?) where x != y: return x < y
 			case (_?, nil): return true
 			case (nil, _?): return false
-			default: return a.statusAt < b.statusAt
+			default: return a.since < b.since
 			}
 		}
 	}
@@ -97,13 +121,23 @@ final class StatusStore {
 			else { existing.ask = ask ?? existing.ask; existing.due = due ?? existing.due }
 			if let summary { existing.fill(from: summary) }
 			records[key] = existing
+			dropSiblings(of: existing)
 		} else {
 			var record = ThreadRecord(accountID: account, messageID: message, status: status, subject: "", fromName: "", fromEmail: "",
 									  preview: "", receivedAt: .now, statusAt: .now, due: due, ask: ask)
 			if let summary { record.fill(from: summary) }
 			records[key] = record
+			dropSiblings(of: record)
 		}
 		save()
+	}
+
+	/// A conversation has one status: giving it to one message takes it off the others in its thread.
+	private func dropSiblings(of record: ThreadRecord) {
+		guard let thread = record.threadID, !thread.isEmpty else { return }
+		for (key, other) in records where key != record.id && other.accountID == record.accountID && other.threadID == thread {
+			records[key] = nil
+		}
 	}
 
 	func remove(account: String, message: String) {
@@ -128,6 +162,7 @@ final class StatusStore {
 
 private extension ThreadRecord {
 	mutating func fill(from summary: MessageSummary) {
+		threadID = summary.threadId
 		subject = summary.subject
 		fromName = summary.fromName
 		fromEmail = summary.fromEmail

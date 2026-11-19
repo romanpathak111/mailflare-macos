@@ -641,7 +641,7 @@ struct ContentView: View {
 
 	/// The conversation's status, from the title bar: the four statuses, the current one checked.
 	private func statusMenu(_ message: MessageSummary) -> some View {
-		let current = store.status(of: message.id)
+		let current = store.status(of: message)
 		return TitlebarMenu(icon: .label, help: current.map { "Status: \($0.title)" } ?? "Set status", tint: current?.dot) {
 			ForEach(ThreadStatus.allCases) { status in
 				Button {

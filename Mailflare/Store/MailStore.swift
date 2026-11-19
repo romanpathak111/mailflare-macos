@@ -1961,6 +1961,24 @@ final class MailStore {
 		return statuses.status(account: acct, message: raw)
 	}
 
+	/// The same, for a message in hand: a reply in a conversation shows the status the conversation has.
+	func status(of message: MessageSummary) -> ThreadStatus? {
+		let (acct, raw) = owner(of: message.id)
+		return statuses.status(account: acct, message: raw, thread: message.threadId)
+	}
+
+	/// The record behind a listed message's status, when the message itself has one.
+	func statusRecord(of id: String) -> ThreadRecord? {
+		let (acct, raw) = owner(of: id)
+		return statuses.record(account: acct, message: raw)
+	}
+
+	/// Marks a message that needs a reply as due today, or takes the mark away.
+	func setDueToday(_ due: Bool, for id: String) {
+		let (acct, raw) = owner(of: id)
+		statuses.setDue(due ? .now : nil, account: acct, message: raw)
+	}
+
 	/// Shows Today or the Status board over the mail; a status brings that column forward.
 	func openScreen(_ target: AppScreen, status: ThreadStatus? = nil) {
 		settingsPage = nil
@@ -1971,12 +1989,12 @@ final class MailStore {
 	func setStatus(_ status: ThreadStatus?, for id: String) { setStatus(status, for: [id]) }
 
 	/// Gives the messages a status, or takes theirs away with nil.
-	func setStatus(_ status: ThreadStatus?, for ids: [String], ask: String? = nil) {
+	func setStatus(_ status: ThreadStatus?, for ids: [String], ask: String? = nil, due: Date? = nil) {
 		for id in ids {
 			let (acct, raw) = owner(of: id)
 			if let status {
 				let summary = messages.first { $0.id == id } ?? (detail?.summary.id == id ? detail?.summary : nil)
-				statuses.set(status, account: acct, message: raw, summary: summary, ask: ask)
+				statuses.set(status, account: acct, message: raw, summary: summary, ask: ask, due: due)
 			} else {
 				statuses.remove(account: acct, message: raw)
 			}
@@ -2019,8 +2037,8 @@ final class MailStore {
 		guard sidebar == .allInboxes else { return list }
 		switch statusFilter {
 		case .all: return list
-		case .needsReply, .waiting: return list.filter { status(of: $0.id) == statusFilter.status }
-		case .unsorted: return list.filter { status(of: $0.id) == nil }
+		case .needsReply, .waiting: return list.filter { status(of: $0) == statusFilter.status }
+		case .unsorted: return list.filter { status(of: $0) == nil }
 		}
 	}
 
@@ -2037,7 +2055,7 @@ final class MailStore {
 			var items: [(account: String, summary: MessageSummary)] = []
 			for account in accounts {
 				guard let page = try? self.fetch(account.id, .role(role: "inbox"), limit: 60) else { continue }
-				for summary in page.list where self.statuses.status(account: account.id, message: summary.id) == nil && !summary.flagged {
+				for summary in page.list where self.statuses.status(account: account.id, message: summary.id, thread: summary.threadId) == nil && !summary.flagged {
 					items.append((account.id, summary))
 				}
 			}
@@ -2060,7 +2078,7 @@ final class MailStore {
 			var archivable: [ThreadRecord] = []
 			for (index, pair) in items.enumerated() {
 				guard let suggestion = suggestions[String(index)] ?? StatusAssistant.guess(item(index)) else { continue }
-				self.statuses.set(suggestion.status, account: pair.account, message: pair.summary.id, summary: pair.summary, ask: suggestion.ask)
+				self.statuses.set(suggestion.status, account: pair.account, message: pair.summary.id, summary: pair.summary, ask: suggestion.ask, due: suggestion.due)
 				if suggestion.status == .canArchive, let record = self.statuses.record(account: pair.account, message: pair.summary.id) { archivable.append(record) }
 				given += 1
 			}
