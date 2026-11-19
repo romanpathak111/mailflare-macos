@@ -10,8 +10,8 @@ struct MessageListView: View {
 			header
 				// Above the list, so the filter button's tooltip is not covered by it.
 				.zIndex(1)
-			if store.sidebar == .allInboxes { StatusFilterBar() }
-			Rectangle().fill(AppTheme.cardStroke).frame(height: 1)
+			if store.sidebar == .allInboxes && store.statusList == nil { StatusFilterBar() }
+			Rectangle().fill(Folio.softLine).frame(height: 1)
 			list
 		}
 		.background(AppTheme.background)
@@ -19,12 +19,12 @@ struct MessageListView: View {
 
 	/// The mailbox in view and how many messages it holds, on one row, with the unread filter.
 	private var header: some View {
-		HStack(alignment: .center, spacing: 8) {
-			// One run of text, so the title and the count share a baseline and the pair is centred.
-			(Text(store.title).font(.system(size: 15, weight: .semibold))
-				+ Text("   ")
-				+ Text(store.subtitle).font(Typography.meta).foregroundStyle(.secondary))
-				.lineLimit(1)
+		HStack(alignment: .firstTextBaseline, spacing: 10) {
+			if let status = store.statusList { StatusDot(status: status, size: 10).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 } }
+			Text(store.title).font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(Folio.ink)
+				.lineLimit(1).minimumScaleFactor(0.6).truncationMode(.middle)
+				.help(store.title)
+			Text(store.subtitle).font(.system(size: 13)).foregroundStyle(Folio.meta).lineLimit(1).fixedSize()
 			Spacer(minLength: 4)
 			Button { store.unreadOnly.toggle() } label: {
 				HIcon(.filter, size: 15)
@@ -38,8 +38,8 @@ struct MessageListView: View {
 			.titlebarTooltip(store.unreadOnly ? "Showing unread only" : "Filter unread messages", isHovering: isHoveringFilter)
 			.accessibilityLabel(store.unreadOnly ? "Showing unread only" : "Filter unread messages")
 		}
-		.padding(.horizontal, 16)
-		.frame(height: PaneHeader.height)
+		.padding(.horizontal, 24)
+		.padding(.top, 22).padding(.bottom, store.sidebar == .allInboxes && store.statusList == nil ? 14 : 16)
 	}
 
 	/// A row is at most this tall (sender, subject, two preview lines). A row with a shorter preview is
@@ -598,20 +598,17 @@ struct StatusFilterBar: View {
 				Button {
 					store.statusFilter = filter
 				} label: {
-					HStack(spacing: 5) {
-						if let status = filter.status { StatusDot(status: status, size: 6) }
-						Text(filter.title).font(Typography.meta.weight(.medium)).lineLimit(1)
-					}
-					.foregroundStyle(selected ? AppTheme.prominentPillText : Color.primary)
-					.padding(.horizontal, 10).padding(.vertical, 5)
-					.background(Capsule().fill(selected ? AppTheme.prominentPillFill : AppTheme.composerContextFill))
-					.contentShape(Capsule())
+					Text(filter.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+						.foregroundStyle(selected ? Folio.onDark : Folio.body)
+						.padding(.horizontal, 12).padding(.vertical, 7)
+						.background(Capsule().fill(selected ? Folio.dark : Folio.chip))
+						.contentShape(Capsule())
 				}
 				.buttonStyle(.plain)
 			}
 			Spacer(minLength: 0)
 		}
-		.padding(.horizontal, 16).padding(.bottom, 10)
+		.padding(.horizontal, 24).padding(.bottom, 16)
 		.frame(maxWidth: .infinity, alignment: .leading)
 	}
 }

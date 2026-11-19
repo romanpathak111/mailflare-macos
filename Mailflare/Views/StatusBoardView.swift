@@ -14,7 +14,7 @@ struct StatusBoardView: View {
 		VStack(alignment: .leading, spacing: 0) {
 			header
 			GeometryReader { proxy in
-				let gap: CGFloat = 12, padding: CGFloat = 20
+				let gap: CGFloat = 14, padding: CGFloat = 32
 				let width = max(220, (proxy.size.width - padding * 2 - gap * 3) / 4)
 				ScrollView(.horizontal, showsIndicators: false) {
 					HStack(alignment: .top, spacing: gap) {
@@ -28,7 +28,7 @@ struct StatusBoardView: View {
 				}
 			}
 		}
-		.background(AppTheme.background)
+		.background(Folio.soft)
 		.confirmationDialog("Archive all \(records(.canArchive).count) conversations?", isPresented: $confirmingArchive, titleVisibility: .visible) {
 			Button("Archive All") { store.archive(records: records(.canArchive)) }
 		} message: {
@@ -44,25 +44,25 @@ struct StatusBoardView: View {
 
 	private var header: some View {
 		HStack(alignment: .bottom, spacing: 10) {
-			VStack(alignment: .leading, spacing: 4) {
-				Text("Status board").font(.system(size: 26, weight: .bold)).tracking(-0.5)
-				Text("Drag a conversation to change its status. Sort unsorted mail to file what just arrived.")
-					.font(Typography.notice).foregroundStyle(.secondary).lineLimit(1)
+			VStack(alignment: .leading, spacing: 6) {
+				Text("Status board").font(.system(size: 32, weight: .bold)).tracking(-1.1).foregroundStyle(Folio.ink)
+				Text("Drag a thread to change its status. \(store.displayBrandName) can sort new mail for you.")
+					.font(.system(size: 15)).foregroundStyle(Folio.body).lineLimit(1)
 			}
 			Spacer(minLength: 12)
-			if store.accountList.count > 1 { filterMenu }
+			filterMenu
 			Button {
 				store.sortUnsortedMail()
 			} label: {
-				HStack(spacing: 6) {
+				HStack(spacing: 8) {
 					if store.isSortingStatuses { ProgressView().controlSize(.small).scaleEffect(0.7) } else { HIcon(.sparkles, size: 14) }
 					Text("Sort unsorted mail")
 				}
 			}
-			.buttonStyle(.pillProminent)
+			.buttonStyle(FolioFilledButtonStyle(fill: Folio.dark, ink: Folio.onDark))
 			.disabled(store.isSortingStatuses)
 		}
-		.padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
+		.padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 26)
 	}
 
 	private var filterMenu: some View {
@@ -75,13 +75,11 @@ struct StatusBoardView: View {
 				}
 			}
 		} label: {
-			HStack(spacing: 6) {
-				HIcon(.filter, size: 14)
-				Text(accountFilter.flatMap { id in store.accountList.first { $0.id == id } }.map(store.accountName) ?? "Filter")
-			}
-			.font(.system(size: 13, weight: .medium))
-			.padding(.horizontal, 14).padding(.vertical, 7)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.railSelection.opacity(0.7)))
+			Text(accountFilter.flatMap { id in store.accountList.first { $0.id == id } }.map(store.accountName) ?? "Filter")
+				.font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.body)
+				.padding(.horizontal, 16).frame(height: 40)
+				.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Folio.card))
+				.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
 		}
 		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
 	}
@@ -95,9 +93,9 @@ struct StatusBoardView: View {
 		return VStack(alignment: .leading, spacing: 10) {
 			HStack(spacing: 8) {
 				StatusDot(status: status)
-				Text(status.title).font(Typography.notice.weight(.semibold)).lineLimit(1)
+				Text(status.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
 				Spacer(minLength: 4)
-				Text("\(cards.count)").font(Typography.notice.weight(.semibold))
+				Text("\(cards.count)").font(.system(size: 13, weight: .semibold))
 			}
 			.foregroundStyle(status.ink)
 			.padding(.horizontal, 12).frame(height: 36)
@@ -108,21 +106,23 @@ struct StatusBoardView: View {
 				LazyVStack(spacing: 10) {
 					if isTarget {
 						RoundedRectangle(cornerRadius: 12, style: .continuous)
-							.strokeBorder(status.dot, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-							.frame(height: 70)
-							.overlay(Text("Drop here").font(Typography.notice.weight(.semibold)).foregroundStyle(status.ink))
+							.fill(status.dropFill)
+							.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(status.dropStroke, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
+							.frame(height: 88)
+							.overlay(Text("Drop here").font(.system(size: 13, weight: .semibold)).foregroundStyle(status.ink))
 					}
 					ForEach(cards) { record in
 						BoardCard(record: record, status: status)
 							.draggable(record.id)
 					}
 					if cards.isEmpty && !isTarget {
-						Text("Nothing here").font(Typography.notice).foregroundStyle(.tertiary)
+						Text("Nothing here").font(.system(size: 13)).foregroundStyle(Folio.meta)
 							.frame(maxWidth: .infinity, minHeight: 60)
 					}
 					if status == .canArchive && !cards.isEmpty {
 						Button("Archive all \(cards.count)") { confirmingArchive = true }
-							.buttonStyle(.pill).frame(maxWidth: .infinity)
+							.buttonStyle(FolioOutlineButtonStyle(fullWidth: true))
+							.padding(.top, 2)
 					}
 				}
 				.padding(.bottom, 8)
@@ -151,26 +151,32 @@ private struct BoardCard: View {
 
 	private var detail: String { record.ask.flatMap { $0.isEmpty ? nil : $0 } ?? record.preview }
 	private var isDue: Bool { record.age() == "Due today" }
+	/// A thread waited on for three days or more is flagged for a follow-up, as on Today.
+	private var followsUp: Bool {
+		status == .waiting && (Calendar.current.dateComponents([.day], from: record.statusAt, to: .now).day ?? 0) >= 3
+	}
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 5) {
-			Text(record.subject.isEmpty ? "(No Subject)" : record.subject).font(Typography.bodySemibold).lineLimit(2)
+		VStack(alignment: .leading, spacing: 6) {
+			Text(record.subject.isEmpty ? "(No Subject)" : record.subject).font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(2)
 			if !detail.isEmpty {
-				Text(detail).font(Typography.notice).foregroundStyle(.primary.opacity(0.8)).lineLimit(2)
+				Text(detail).font(.system(size: 13)).lineSpacing(2).foregroundStyle(Folio.body).lineLimit(2)
 			}
 			HStack {
 				Text(record.senderDisplay).lineLimit(1)
 				Spacer(minLength: 6)
-				Text(record.age()).fontWeight(isDue ? .bold : .regular).foregroundStyle(isDue ? status.ink : Color.secondary).lineLimit(1)
+				Text(followsUp ? "Follow up" : record.age())
+					.fontWeight(isDue || followsUp ? .bold : .regular)
+					.foregroundStyle(isDue || followsUp ? status.ink : Folio.meta).lineLimit(1)
 			}
-			.font(Typography.meta).foregroundStyle(.secondary)
-			.padding(.top, 4)
+			.font(.system(size: 12)).foregroundStyle(Folio.meta)
+			.padding(.top, 6)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding(14)
-		.background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.elevated))
-		.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isHovering ? status.dot.opacity(0.7) : AppTheme.cardStroke, lineWidth: 1))
-		.shadow(color: AppTheme.composerShadow.opacity(isHovering ? 0.6 : 0), radius: 6, y: 2)
+		.background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Folio.card))
+		.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(isHovering ? Folio.accent : Folio.line, lineWidth: 1))
+		.shadow(color: Folio.accent.opacity(isHovering ? 0.18 : 0), radius: 14, y: 8)
 		.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 		.onHover { isHovering = $0 }
 		.onTapGesture { store.open(record) }

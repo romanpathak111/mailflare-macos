@@ -90,7 +90,11 @@ final class MailStore {
 	let aiPrompts = AIPromptLibrary()
 	@ObservationIgnored private(set) var avatars = AvatarCache(directory: FileManager.default.temporaryDirectory.appendingPathComponent("mailflare-avatars", isDirectory: true))
 
-	var sidebar: SidebarItem = .allInboxes
+	/// Any other place in the sidebar ends a status list.
+	var sidebar: SidebarItem = .allInboxes { didSet { statusList = nil } }
+	/// The mail given one status, listed from the statuses themselves (across accounts and folders,
+	/// archived mail included) when a status is chosen in the sidebar or on Today.
+	var statusList: ThreadStatus?
 	var messages: [MessageSummary] = []
 	var total = 0
 	var selectedID: String?
@@ -238,7 +242,19 @@ final class MailStore {
 
 	var unifiedExcluded: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "unifiedExcludedAccounts") ?? [])
 
-	var unifiedHidden: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "unifiedHiddenViews") ?? [])
+	var unifiedHidden: Set<String> = MailStore.initialUnifiedHidden()
+
+	/// The sidebar lists Inbox, Sent and Archive, as in the mockup; the other views move under More.
+	/// Done once; Settings → Organize changes it after that.
+	private static func initialUnifiedHidden() -> Set<String> {
+		let defaults = UserDefaults.standard
+		if !defaults.bool(forKey: "folioSidebarApplied") {
+			defaults.set(true, forKey: "folioSidebarApplied")
+			let hidden: [UnifiedViewKind] = [.today, .drafts, .starred, .spam, .trash]
+			defaults.set(hidden.map(\.rawValue), forKey: "unifiedHiddenViews")
+		}
+		return Set(defaults.stringArray(forKey: "unifiedHiddenViews") ?? [])
+	}
 	func unifiedShows(_ kind: UnifiedViewKind) -> Bool { !unifiedHidden.contains(kind.rawValue) }
 	func setUnified(_ kind: UnifiedViewKind, shown: Bool) {
 		if shown { unifiedHidden.remove(kind.rawValue) } else { unifiedHidden.insert(kind.rawValue) }
@@ -1358,6 +1374,7 @@ final class MailStore {
 	}
 
 	var title: String {
+		if let statusList { return statusList.title }
 		if let view = activeView {
 			let base: String? = switch sidebar {
 			case .allDrafts: "Drafts"
@@ -1496,6 +1513,7 @@ final class MailStore {
 
 	func reload() {
 		guard let core, account != nil else { return }
+		if let statusList, screen == .mail { reloadStatusList(statusList); return }
 		resetOlderIfListChanged()
 		if activeView != nil { reloadView(); return }
 		let id = accountID
@@ -1908,7 +1926,40 @@ final class MailStore {
 	func openScreen(_ target: AppScreen, status: ThreadStatus? = nil) {
 		settingsPage = nil
 		boardFocus = status
+		statusList = nil
 		screen = target
+	}
+
+	/// Lists every conversation with `status`, newest first, in the mail view.
+	func openStatusList(_ status: ThreadStatus) {
+		settingsPage = nil
+		boardFocus = nil
+		screen = .mail
+		searchText = ""; unreadOnly = false
+		statusList = status
+		selectedID = nil; detail = nil
+		reload()
+	}
+
+	/// The listed mail of a status list: each record's message as it is stored now, by the id that
+	/// carries its account. A record whose message is gone (deleted elsewhere) is left out.
+	private func reloadStatusList(_ status: ThreadStatus) {
+		guard let core else { return }
+		let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+		var list: [MessageSummary] = []
+		for record in statuses.records(with: status) where accountList.contains(where: { $0.id == record.accountID }) {
+			guard var summary = try? core.messageSummary(accountId: record.accountID, messageId: record.messageID) else { continue }
+			summary.id = listedID(record)
+			if !q.isEmpty {
+				let haystack = "\(summary.subject) \(summary.fromName) \(summary.fromEmail) \(summary.preview)".lowercased()
+				guard haystack.contains(q) else { continue }
+			}
+			list.append(summary)
+		}
+		list.sort { $0.receivedAt > $1.receivedAt }
+		if messages != list { messages = list }
+		if total != list.count { total = list.count }
+		setOlderSources([])
 	}
 
 	func setStatus(_ status: ThreadStatus?, for id: String) { setStatus(status, for: [id]) }
@@ -1924,7 +1975,7 @@ final class MailStore {
 				statuses.remove(account: acct, message: raw)
 			}
 		}
-		if statusFilter != .all { reload() }
+		if statusFilter != .all || statusList != nil { reload() }
 	}
 
 	/// The id a record's message is listed under, which every action accepts.
@@ -1933,6 +1984,7 @@ final class MailStore {
 	/// Moves a record's conversation to a status from the board.
 	func setStatus(_ status: ThreadStatus, for record: ThreadRecord) {
 		statuses.set(status, account: record.accountID, message: record.messageID, summary: nil, ask: record.ask)
+		if statusList != nil { reload() }
 	}
 
 	/// Opens a conversation from Today or the board in the mail view.
@@ -2327,14 +2379,21 @@ final class MailStore {
 		compose = d
 	}
 
+	/// Opens a reply to a listed message with `html` already written above the signature (a suggested
+	/// reply). Sending it moves the conversation from Needs reply to Waiting, as any reply does.
+	func reply(to id: String, writing html: String) {
+		template(id, title: "Reply", prefill: html) { try await $0.composeTemplate(accountId: $1, messageId: $2, kind: .reply) }
+	}
+
 	func editDraft(_ id: String, title: String = "Draft") { template(id, title: title) { try await $0.draftTemplate(accountId: $1, messageId: $2) } }
 
-	private func template(_ id: String, title: String, _ make: @escaping (MailCore, String, String) async throws -> ComposeTemplate) {
+	private func template(_ id: String, title: String, prefill: String? = nil, _ make: @escaping (MailCore, String, String) async throws -> ComposeTemplate) {
 		guard let core else { return }
 		let (acct, raw) = owner(of: id)
 		Task {
 			do {
 				var d = draft(from: try await make(core, acct, raw), title: title, accountID: acct)
+				if let prefill { d.body = prefill + d.body }
 				// The message a reply answers: once it is sent, its conversation moves from Needs reply to Waiting.
 				if title.hasPrefix("Reply") { d.answeringID = id }
 				compose = d

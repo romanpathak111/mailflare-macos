@@ -43,6 +43,7 @@ struct StatusMenuRow: View {
 			HStack(spacing: 10) {
 				StatusDot(status: status, size: 9)
 				Text(status.title).font(isSelected ? font.weight(.semibold) : font).lineLimit(1)
+					.foregroundStyle(isSelected ? status.ink : Folio.body)
 				Spacer(minLength: 8)
 				if isSelected { HIcon(.check, size: 14) }
 			}
@@ -88,16 +89,7 @@ struct StatusPicker: View {
 				.transition(.opacity)
 			}
 			Spacer(minLength: 0)
-			if current == .needsReply, draftsReplies, store.ai.isConfigured {
-				Button {
-					store.chatOpen = true
-					store.chat.send("Draft a short reply to the email I have open, in my voice. Keep it as a draft; do not send it.", store: store)
-				} label: {
-					HStack(spacing: 6) { HIcon(.sparkles, size: 13); Text("Draft a reply") }
-				}
-				.buttonStyle(.pill)
-				.help("Ask the assistant to write a reply")
-			}
+			// A reply for Needs reply mail is suggested in its own card at the end of the message.
 		}
 		.zIndex(isOpen ? 10 : 0)
 		.onChange(of: message.id) { _, _ in isOpen = false }
@@ -107,21 +99,24 @@ struct StatusPicker: View {
 		Button {
 			withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
 		} label: {
-			HStack(spacing: 8) {
+			HStack(spacing: 10) {
 				if let current { StatusDot(status: current, size: 9) }
-				Text(current?.title ?? "Set status").font(Typography.body.weight(.semibold)).lineLimit(1)
-				HIcon(.chevronDown, size: 12)
+				Text(current?.title ?? "Set status").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+				Spacer(minLength: 12)
+				HIcon(.chevronDown, size: 13)
 			}
-			.foregroundStyle(current?.ink ?? Color.secondary)
-			.padding(.horizontal, 12).padding(.vertical, 7)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(current?.tint ?? AppTheme.composerContextFill))
+			.foregroundStyle(current?.ink ?? Folio.body)
+			.padding(.horizontal, 16)
+			.frame(width: 230, height: 40)
+			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(current?.tileFill ?? Folio.chip))
+			.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(current?.actionStroke ?? Folio.line, lineWidth: 1))
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
 		.help("Status of this conversation")
 		.overlay(alignment: .topLeading) {
 			if isOpen {
-				DropdownCard(width: 220, anchor: .topLeading) {
+				DropdownCard(width: 230, anchor: .topLeading) {
 					ForEach(ThreadStatus.allCases) { status in
 						StatusMenuRow(status: status, isSelected: status == current) { choose(status) }
 					}
@@ -136,7 +131,7 @@ struct StatusPicker: View {
 						DropdownRow(label: "Clear status", icon: .cancel) { choose(nil) }
 					}
 				}
-				.offset(y: 38)
+				.offset(y: 46)
 			}
 		}
 		.clickAway(isActive: isOpen) { withAnimation(.snappy(duration: 0.2)) { isOpen = false } }

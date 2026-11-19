@@ -41,6 +41,7 @@ private struct MessageDetail: View {
 	@State private var dropError: String?
 	@State private var isDropTarget = false
 	@AppStorage(ReadingSettings.loadRemoteContentKey) private var loadRemoteContent = true
+	@AppStorage(AssistantSettings.draftRepliesKey) private var draftsReplies = true
 
 	init(message: MessageSummary) {
 		self.message = message
@@ -93,13 +94,21 @@ private struct MessageDetail: View {
 		ScrollViewReader { scroller in
 		ScrollView {
 			VStack(alignment: .leading, spacing: 0) {
-				VStack(alignment: .leading, spacing: 12) {
-					header
-					if store.role(of: message) != "drafts" { StatusPicker(message: message) }
-					if let summary { summaryCard(summary) }
-					if let error = store.summaryError { Text(error).font(Typography.meta).foregroundStyle(.orange) }
+				VStack(alignment: .leading, spacing: 0) {
+					Text(message.subject.isEmpty ? "(No Subject)" : message.subject)
+						.font(.system(size: 32, weight: .bold)).tracking(-1.1).foregroundStyle(Folio.ink)
+						.fixedSize(horizontal: false, vertical: true)
+						.textSelection(.enabled)
+						.padding(.bottom, 18)
+					if store.role(of: message) != "drafts" { StatusPicker(message: message).padding(.bottom, 24).zIndex(5) }
+					Rectangle().fill(Folio.line).frame(height: 1).padding(.bottom, 24)
+					VStack(alignment: .leading, spacing: 12) {
+						header
+						if let summary { summaryCard(summary) }
+						if let error = store.summaryError { Text(error).font(Typography.meta).foregroundStyle(.orange) }
+					}
 				}
-				.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
+				.padding(.horizontal, 44).padding(.top, 36).padding(.bottom, 8)
 
 				if store.detail == nil { bodySkeleton }
 				if let body = store.detail {
@@ -128,6 +137,10 @@ private struct MessageDetail: View {
 							.padding(12)
 						}
 					}
+				}
+				if store.role(of: message) != "drafts", store.status(of: message) == .needsReply, draftsReplies, store.ai.isConfigured {
+					SuggestedReplyCard(message: message)
+						.padding(.horizontal, 44).padding(.top, 24).padding(.bottom, 8)
 				}
 				// Replies sent from the reply box slide in at the end, like the rest of the conversation.
 				ForEach(store.sentReplies[message.id] ?? []) { reply in

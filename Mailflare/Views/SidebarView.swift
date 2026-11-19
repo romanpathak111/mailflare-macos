@@ -10,8 +10,13 @@ struct SidebarView: View {
 		ZStack(alignment: .top) {
 			content
 			// The dropdown covers the header's place, its top edge level with the main body's.
-			if switcherOpen { dropdown.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top))) }
+			if switcherOpen {
+				dropdown
+					.padding(.top, Self.wordmarkHeight)
+					.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+			}
 		}
+		.background(Folio.sidebar)
 	}
 
 	private var content: some View {
@@ -61,14 +66,17 @@ struct SidebarView: View {
 
 	private var mailMenu: some View {
 		VStack(spacing: 0) {
+			wordmark
 			header
 				.opacity(switcherOpen ? 0 : 1)
 				.allowsHitTesting(!switcherOpen)
+				.padding(.bottom, 14)
 			ScrollView {
 				VStack(alignment: .leading, spacing: 2) {
 					folioList
 					topList
-					if store.showsAllInboxes { accountsSection } else { singleSections }
+					statusSection
+					if store.showsAllInboxes { accountsSection } else { singleSections; accountList }
 				}
 				.padding(.horizontal, Self.gutter)
 				.padding(.bottom, 12)
@@ -78,6 +86,31 @@ struct SidebarView: View {
 				if switcherOpen { Color.clear.contentShape(Rectangle()).onTapGesture { closeSwitcher() } }
 			}
 		}
+	}
+
+	// MARK: Wordmark
+
+	static let wordmarkHeight: CGFloat = 58
+
+	/// The app's name, as the mockup sets "folio", with New Message at the other end.
+	private var wordmark: some View {
+		HStack(spacing: 8) {
+			Text(store.displayBrandName.lowercased())
+				.font(.system(size: 24, weight: .bold)).tracking(-0.7).foregroundStyle(Folio.ink).lineLimit(1)
+			Spacer(minLength: 0)
+			Button { store.newMessage() } label: {
+				HIcon(.compose, size: 16)
+					.foregroundStyle(store.minimizedDraft == nil ? Folio.body : Folio.selectionInk)
+					.frame(width: 32, height: 32)
+					.background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(store.minimizedDraft == nil ? Color.clear : Folio.selection))
+					.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+			.help(store.minimizedDraft == nil ? "New Message (⌘N)" : "Continue your draft (⌘N)")
+			.accessibilityLabel("New Message")
+		}
+		.padding(.leading, Self.gutter + 8).padding(.trailing, Self.gutter + 2)
+		.frame(height: Self.wordmarkHeight)
 	}
 
 	// MARK: Switcher header
@@ -97,26 +130,23 @@ struct SidebarView: View {
 		} label: {
 			HStack(spacing: 10) {
 				if let activeView {
-					accountStack(activeView.accountIDs, size: 28, step: 15)
+					accountStack(activeView.accountIDs, size: 22, step: 14)
 				} else if let inbox, let account = store.account {
-					ProfileAvatar(key: AvatarCache.key(account: account.id, mailbox: inbox.id), name: store.label(inbox), size: 34)
+					ProfileAvatar(key: AvatarCache.key(account: account.id, mailbox: inbox.id), name: store.label(inbox), size: 22)
 				} else if !multipleInboxes, let account = store.account {
 					// A single-inbox account (Gmail and the like): the account itself.
-					ProfileAvatar(key: AvatarCache.key(account: account.id), name: store.accountName(account), size: 34)
+					ProfileAvatar(key: AvatarCache.key(account: account.id), name: store.accountName(account), size: 22)
 				} else {
-					avatarStack(store.inboxAddresses, accountID: store.account?.id ?? "", size: 28, step: 15)
+					avatarStack(store.inboxAddresses, accountID: store.account?.id ?? "", size: 22, step: 14)
 				}
-				VStack(alignment: .leading, spacing: 1) {
-					Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-					Text(activeView.map(viewSummary) ?? inbox?.inboxEmail ?? (multipleInboxes ? addressSummary : (store.account?.email ?? "")))
-						.font(Typography.meta).foregroundStyle(.secondary).lineLimit(1)
-				}
+				Text(store.isAllAccounts ? "All accounts" : title)
+					.font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(1)
+					.help(activeView.map(viewSummary) ?? inbox?.inboxEmail ?? (multipleInboxes ? addressSummary : (store.account?.email ?? "")))
 				Spacer(minLength: 0)
-				HIcon(.chevronDown, size: 13).foregroundStyle(.secondary)
-					.rotationEffect(.degrees(switcherOpen ? 180 : 0))
+				UpDownChevron().foregroundStyle(Folio.meta)
 			}
-			.padding(.horizontal, Self.gutter)
-			.padding(.vertical, 10)
+			.padding(.horizontal, 12)
+			.frame(height: 46)
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
@@ -127,8 +157,8 @@ struct SidebarView: View {
 	/// dropdown grows this same card downward.
 	private var header: some View {
 		headerButton
-			.background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-			.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.outline, lineWidth: 1))
+			.background(Folio.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
 			.padding(.horizontal, Self.gutter)
 	}
 
@@ -305,25 +335,51 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 
 	// MARK: Today, the Status board and the statuses
 
-	/// Today and the Status board lead the sidebar, then the four statuses with how many conversations
-	/// each holds. Statuses are the way into the board, one column at a time.
+	/// Today and the Status board lead the sidebar.
 	private var folioList: some View {
 		VStack(alignment: .leading, spacing: 2) {
 			SidebarRow(icon: .calendar, title: "Today", badge: 0, tint: nil,
 					   isSelected: store.settingsPage == nil && store.screen == .home) { store.openScreen(.home) }
 			SidebarRow(icon: .board, title: "Status board", badge: 0, tint: nil,
-					   isSelected: store.settingsPage == nil && store.screen == .board && store.boardFocus == nil) { store.openScreen(.board) }
+					   isSelected: store.settingsPage == nil && store.screen == .board) { store.openScreen(.board) }
+		}
+	}
+
+	/// The four statuses with how many conversations each holds. Each lists its mail, so the
+	/// labels give the tagged emails as a list while the board shows them side by side.
+	private var statusSection: some View {
+		VStack(alignment: .leading, spacing: 0) {
 			heading("statuses", "Status")
 			if !collapsed("statuses") {
 				ForEach(ThreadStatus.allCases) { status in
 					StatusSidebarRow(status: status, count: store.statuses.count(status),
-									 isSelected: store.settingsPage == nil && store.screen == .board && store.boardFocus == status) {
-						store.openScreen(.board, status: status)
+									 isSelected: store.settingsPage == nil && store.screen == .mail && store.statusList == status) {
+						store.openStatusList(status)
 					}
 				}
 			}
 		}
-		.padding(.top, 4)
+	}
+
+	/// Every account, as the mockup lists them, with + to add one. Shown when one account is in view;
+	/// with several, the accounts section above already lists them.
+	private var accountList: some View {
+		VStack(alignment: .leading, spacing: 0) {
+			HStack(spacing: 0) {
+				heading("account-list", "Accounts")
+				addButton(title: "Accounts") { store.settingsPage = .accounts }
+					.padding(.top, 12)
+			}
+			if !collapsed("account-list") {
+				ForEach(store.accountList) { account in
+					AccountSidebarRow(
+						name: store.switcherName(account),
+						unread: store.unreadCount(accountID: account.id, inbox: nil),
+						isSelected: false
+					) { store.selectInbox(nil, accountID: account.id) }
+				}
+			}
+		}
 	}
 
 	// MARK: Items and sections
@@ -336,12 +392,10 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 			withAnimation(.snappy(duration: 0.2)) { store.toggleSection(id) }
 		} label: {
 			HStack(spacing: 5) {
-				Text(title).font(Typography.meta.weight(.medium)).lineLimit(1)
-				HIcon(.chevronRight, size: 10).rotationEffect(.degrees(collapsed(id) ? 0 : 90))
+				SectionTitle(title)
 				Spacer(minLength: 0)
 			}
-			.foregroundStyle(.secondary)
-			.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 4)
+			.padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 4)
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
@@ -400,9 +454,8 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 	private func folderRow(_ box: Mailbox, group: MailStore.SidebarGroup?) -> some View {
 		let item: SidebarItem = group != nil && store.activeViewID != nil
 			? .mailbox(ViewMessageID.make(account: group!.account.id, message: box.id)) : .mailbox(box.id)
-		let gmail = (group?.account ?? store.account).map(store.isGmailAccount) ?? false
 		return SidebarRow(
-			icon: gmail ? .label : .folder, title: box.name, badge: Int(box.unreadEmails), tint: store.folderColors.color(for: box.id),
+			icon: .folder, title: box.name, badge: Int(box.unreadEmails), tint: store.folderColors.color(for: box.id), compact: true,
 			isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == group?.focus && store.sidebar == item
 		) {
 			if let group { store.openGroupItem(item, in: group) } else { store.openTopItem(item) }
@@ -427,9 +480,10 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 		let hasOff = UnifiedViewKind.allCases.contains { !store.unifiedShows($0) }
 		let folders = store.scopeFolders
 		if hasOff {
-			let id = "inbox-off"
-			heading(id, store.scopeTitle)
-			if !collapsed(id) { offRows(group: nil) }
+			// The views the sidebar doesn't list: closed under More until opened.
+			let open = store.collapsedSections.contains("open:inbox-more")
+			foldHeading("More", isOpen: open) { store.toggleSection("open:inbox-more") }
+			if open { offRows(group: nil) }
 		}
 		let canCreate = store.account.map { store.canCreateFolders(accountID: $0.id) } ?? false
 		if folders.isEmpty && canCreate {
@@ -441,14 +495,14 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 			}
 			.padding(.top, 10)
 		} else if !folders.isEmpty {
-			let subID = "open:inbox-folders"
+			// Open unless the user closed it.
+			let subID = "closed:inbox-folders"
 			let open = store.collapsedSections.contains(subID)
-			let noun = store.isGmail ? "Label" : "Folder"
-			foldHeading(noun + "s", isOpen: open, onAdd: canCreate ? {
+			foldHeading("Folders", isOpen: !open, onAdd: canCreate ? {
 				guard let account = store.account else { return }
 				store.folderRequest = .init(accountID: account.id, kind: .create(parentID: (store.scopeInbox ?? store.inboxAddresses.first)?.id))
 			} : nil) { store.toggleSection(subID) }
-			if open { ForEach(folders) { box in folderRow(box, group: nil) } }
+			if !open { ForEach(folders) { box in folderRow(box, group: nil) } }
 		}
 	}
 
@@ -503,18 +557,16 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 				withAnimation(.snappy(duration: 0.2)) { toggle() }
 			} label: {
 				HStack(spacing: 5) {
-					Text(title).font(Typography.meta.weight(.medium)).lineLimit(1)
-					HIcon(.chevronRight, size: 10).rotationEffect(.degrees(isOpen ? 90 : 0))
+					SectionTitle(title)
 					Spacer(minLength: 0)
 				}
-				.foregroundStyle(.secondary)
 				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
 			.help(isOpen ? "Hide \(title)" : "Show \(title)")
 			if let onAdd { addButton(title: title, action: onAdd) }
 		}
-		.padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 4)
+		.padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 4)
 	}
 
 	/// A folded sub-section heading inside a group; the group keeps its state under an `open:` key,
@@ -542,7 +594,7 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 	private func addButton(title: String, action: @escaping () -> Void) -> some View {
 		let noun = title.hasSuffix("s") ? String(title.dropLast()) : title
 		return Button(action: action) {
-			HIcon(.add, size: 12).foregroundStyle(.secondary).frame(width: 22, height: 18).contentShape(Rectangle())
+			HIcon(.add, size: 13).foregroundStyle(Folio.body).frame(width: 22, height: 22).contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
 		.help("New \(noun)")
@@ -570,76 +622,46 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 
 	// MARK: Footer
 
-	/// The brand and version as a footnote, with a connection note above it when offline.
+	/// The assistant's connection and Settings, with a connection note above them when offline.
 	private var footer: some View {
-		VStack(alignment: .leading, spacing: 4) {
+		VStack(alignment: .leading, spacing: 8) {
 			if let note = store.connectionNote {
 				Text(note).font(.footnote).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+					.padding(.horizontal, Self.gutter)
 			}
 			if let release = updater.available {
 				updateNotice(release)
 			}
-			if !store.license.isPro {
-				Button { store.settingsPage = .license } label: {
-					HStack(spacing: 8) {
-						HIcon(.crown, size: 15)
-						Text("Upgrade to Pro").font(.system(size: 13, weight: .medium))
-					}
-					.frame(maxWidth: .infinity)
-					.padding(.vertical, 9)
-					.background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-					.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.outline, lineWidth: 1))
-					.contentShape(Rectangle())
-				}
-				.buttonStyle(.plain)
-				.padding(.bottom, 4)
-			}
-			// Inside Settings the menu above is the way around, so this entry is only for the mail view.
+			// Inside Settings the menu above is the way around, so these are only for the mail view.
 			if store.settingsPage == nil {
-				Button { store.settingsPage = .general } label: {
-					HStack(spacing: 8) {
-						HIcon(.settings, size: 15)
-						Text("Settings").font(Typography.body)
-						Spacer(minLength: 0)
-					}
-					.foregroundStyle(Color.secondary)
-					.padding(.vertical, 6)
-					.contentShape(Rectangle())
-				}
-				.buttonStyle(.plain)
-				.help("Settings (⌘,)")
-				composeButton
-			}
-			HStack(spacing: 6) {
-				Text("\(store.displayBrandName) v\(MailStore.appVersion)").font(Typography.meta.weight(.medium)).foregroundStyle(.tertiary).lineLimit(1)
-				Spacer(minLength: 0)
-				if store.license.isPro {
-					Text("PRO")
-						.font(.system(size: 10, weight: .bold)).tracking(0.6)
-						.foregroundStyle(.secondary)
-						.padding(.horizontal, 6).padding(.vertical, 2)
-						.background(AppTheme.elevated, in: Capsule())
-						.overlay(Capsule().stroke(AppTheme.outline, lineWidth: 1))
-				}
+				assistantPill
+				SidebarRow(icon: .settings, title: "Settings", badge: 0, tint: nil, isSelected: false) { store.settingsPage = .general }
+					.help("Settings (⌘,)")
 			}
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.padding(.horizontal, Self.gutter * 2).padding(.top, 8).padding(.bottom, 12)
+		.padding(.horizontal, Self.gutter).padding(.top, 8).padding(.bottom, 14)
 	}
 
-	/// New Message, the primary action, below Settings and clear of the footer text.
-	private var composeButton: some View {
-		Button { store.newMessage() } label: {
-			HStack(spacing: 6) {
-				HIcon(.compose, size: 15)
-				Text(store.minimizedDraft == nil ? "Compose" : "Drafting…")
+	/// Which assistant is in use, as the mockup's "Claude connected" card; it opens the Assistant settings.
+	private var assistantPill: some View {
+		let active = store.ai.active
+		let name = active.map { $0.preset.localCLI?.title ?? $0.name } ?? "No assistant"
+		return Button { store.settingsPage = .assistant } label: {
+			HStack(spacing: 10) {
+				Circle().fill(active != nil ? Folio.connectedDot : ThreadStatus.canArchive.dot).frame(width: 8, height: 8)
+				Text(active != nil ? "\(name) connected" : "Connect an assistant")
+					.font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(1)
+				Spacer(minLength: 0)
 			}
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 3)
+			.padding(.horizontal, 14)
+			.frame(height: 46)
+			.background(Folio.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
+			.contentShape(Rectangle())
 		}
-		.buttonStyle(.pillProminent)
-		.help(store.minimizedDraft == nil ? "New Message (⌘N)" : "Continue your draft (⌘N)")
-		.padding(.top, 6).padding(.bottom, 10)
+		.buttonStyle(.plain)
+		.help("Assistant settings")
 	}
 
 	/// A newer release and the button that installs it, or how the install is going.
@@ -674,6 +696,8 @@ private struct SidebarRow: View {
 	var title: String
 	var badge: Int
 	var tint: Color?
+	/// Folder rows are shorter, like the status rows.
+	var compact = false
 	var isSelected: Bool
 	var action: () -> Void
 
@@ -681,17 +705,21 @@ private struct SidebarRow: View {
 
 	var body: some View {
 		Button(action: action) {
-			HStack(spacing: 10) {
-				HIcon(icon, size: 16).foregroundStyle(tint ?? (isSelected ? Color.primary : Color.secondary))
-				Text(title).font(Typography.body).lineLimit(1).foregroundStyle(.primary.opacity(0.94))
+			HStack(spacing: compact ? 10 : 12) {
+				HIcon(icon, size: compact ? 16 : 18).foregroundStyle(tint ?? (isSelected ? Folio.selectionInk : Folio.body))
+				Text(title).font(.system(size: compact ? 13.5 : 14, weight: isSelected ? .semibold : .medium)).lineLimit(1)
+					.foregroundStyle(isSelected ? Folio.selectionInk : Folio.body)
 				Spacer(minLength: 4)
-				if badge > 0 { CountBadge(count: badge) }
+				if badge > 0 {
+					Text("\(badge)").font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+						.foregroundStyle(isSelected ? Folio.selectionInk : Folio.meta)
+				}
 			}
-			.padding(.horizontal, 10)
-			.padding(.vertical, 7)
+			.padding(.horizontal, 12)
+			.frame(height: compact ? 30 : 38)
 			.background(
-				RoundedRectangle(cornerRadius: 8, style: .continuous)
-					.fill(isSelected ? AppTheme.railSelection : (isHovering ? AppTheme.rowHighlight : .clear))
+				RoundedRectangle(cornerRadius: 9, style: .continuous)
+					.fill(isSelected ? Folio.selection : (isHovering ? AppTheme.rowHighlight : .clear))
 			)
 			.contentShape(Rectangle())
 		}
@@ -713,17 +741,72 @@ private struct StatusSidebarRow: View {
 	var body: some View {
 		Button(action: action) {
 			HStack(spacing: 10) {
-				StatusDot(status: status, size: 9).frame(width: 16)
-				Text(status.title).font(Typography.body).lineLimit(1).foregroundStyle(.primary.opacity(0.94))
+				StatusDot(status: status, size: 9)
+				Text(status.title).font(.system(size: 13.5, weight: isSelected ? .semibold : .regular)).lineLimit(1)
+					.foregroundStyle(isSelected ? Folio.selectionInk : Folio.body)
 				Spacer(minLength: 4)
-				if count > 0 { CountBadge(count: count) }
+				Text("\(count)").font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+					.foregroundStyle(isSelected ? Folio.selectionInk : Folio.meta)
 			}
-			.padding(.horizontal, 10)
-			.padding(.vertical, 7)
+			.padding(.horizontal, 12)
+			.frame(height: 30)
 			.background(
-				RoundedRectangle(cornerRadius: 8, style: .continuous)
-					.fill(isSelected ? AppTheme.railSelection : (isHovering ? AppTheme.rowHighlight : .clear))
+				RoundedRectangle(cornerRadius: 9, style: .continuous)
+					.fill(isSelected ? Folio.selection : (isHovering ? AppTheme.rowHighlight : .clear))
 			)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.onHover { isHovering = $0 }
+	}
+}
+
+/// The mockups' small-caps section title: STATUS, FOLDERS, ACCOUNTS.
+private struct SectionTitle: View {
+	var text: String
+	init(_ text: String) { self.text = text }
+
+	var body: some View {
+		Text(text.uppercased())
+			.font(.system(size: 11, weight: .semibold)).tracking(0.9)
+			.foregroundStyle(Folio.meta).lineLimit(1)
+	}
+}
+
+/// The switcher's ⌃⌄ mark.
+private struct UpDownChevron: View {
+	var body: some View {
+		VStack(spacing: 1) {
+			HIcon(.chevronDown, size: 10).rotationEffect(.degrees(180))
+			HIcon(.chevronDown, size: 10)
+		}
+		.frame(width: 16)
+	}
+}
+
+/// One account in the Accounts section: its initial on a soft square, its name and unread count.
+private struct AccountSidebarRow: View {
+	var name: String
+	var unread: Int
+	var isSelected: Bool
+	var action: () -> Void
+	@State private var isHovering = false
+
+	private var initial: String { name.first.map { String($0).uppercased() } ?? "?" }
+
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: 10) {
+				Text(initial).font(.system(size: 11, weight: .bold)).foregroundStyle(Folio.selectionInk)
+					.frame(width: 20, height: 20)
+					.background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Folio.selection))
+				Text(name).font(.system(size: 13.5)).foregroundStyle(Folio.body).lineLimit(1)
+				Spacer(minLength: 4)
+				if unread > 0 { Text("\(unread)").font(.system(size: 12)).foregroundStyle(Folio.meta) }
+			}
+			.padding(.horizontal, 12)
+			.frame(height: 30)
+			.background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isHovering ? AppTheme.rowHighlight : .clear))
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)

@@ -8,6 +8,21 @@ struct SettingsView: View {
 	var page: SettingsPage
 
 	var body: some View {
+		if page == .assistant {
+			// The Assistant page is laid out as in the mockup: a large title over the full width.
+			ScrollView {
+				AssistantSettingsPage()
+					.frame(maxWidth: 900, alignment: .leading)
+					.padding(.horizontal, 72).padding(.top, 56).padding(.bottom, 40)
+					.frame(maxWidth: .infinity, alignment: .leading)
+			}
+			.background(Folio.card)
+		} else {
+			standardPage
+		}
+	}
+
+	private var standardPage: some View {
 		VStack(spacing: 0) {
 			Text(page.title)
 				.font(.system(size: 15, weight: .semibold))
@@ -876,22 +891,47 @@ private struct AssistantSettingsPage: View {
 	]
 
 	var body: some View {
-		Text("The assistant runs Claude Code or Codex on this Mac with the login you already have, so no API key is needed. It suggests a status for each conversation, drafts replies and writes your Today note, using the service you choose.")
-			.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-		HStack(alignment: .top, spacing: 12) {
-			ForEach(services) { card($0) }
+		VStack(alignment: .leading, spacing: 36) {
+			VStack(alignment: .leading, spacing: 10) {
+				Text("Assistant").font(.system(size: 36, weight: .bold)).tracking(-1.25).foregroundStyle(Folio.ink)
+				Text("The assistant runs Claude Code or Codex on this Mac with the account you already pay for, so no API key is needed. It suggests a status for each thread, drafts replies and writes your Today brief, using your plan.")
+					.font(.system(size: 16)).lineSpacing(4).foregroundStyle(Folio.body)
+					.frame(maxWidth: 640, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+			}
+			HStack(alignment: .top, spacing: 16) {
+				ForEach(services) { card($0) }
+			}
+			VStack(alignment: .leading, spacing: 0) {
+				Text("What the assistant does").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
+					.padding(.bottom, 12)
+				behaviour("Suggest a status for new mail", "Proposes Needs reply, Waiting, Can archive or Long-term value. You confirm.", $suggestStatus)
+				behaviour("Draft replies", "Prepares a short reply for threads marked Needs reply.", $draftReplies)
+				behaviour("Write the Today brief", "Summarises what needs you and who is waiting on you each morning.", $todayBrief)
+				behaviour("Archive without asking", "Moves Can archive threads to Archive on its own. Off by default.", $autoArchive)
+				Rectangle().fill(Folio.line).frame(height: 1)
+			}
+			Text("\(store.displayBrandName) sends only the threads the assistant needs to your connected account. You can disconnect at any time.")
+				.font(.system(size: 13)).lineSpacing(3).foregroundStyle(Folio.meta)
+				.frame(maxWidth: 640, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+			if ai.providers.count > 0 {
+				Button("More providers and models…") { store.settingsPage = .ai }
+					.buttonStyle(.plain).font(.system(size: 13, weight: .semibold)).foregroundStyle(Folio.selectionInk)
+			}
 		}
-		SettingsGroup(title: "What the assistant does", footer: "The assistant never sends mail. Drafts open in the composer, and you press Send. Mail it reads goes to the service you connected.") {
-			SettingsToggle(title: "Suggest a status for new mail", detail: "Proposes Needs reply, Waiting, Can archive or Long-term value. You confirm.", isOn: $suggestStatus)
-			SettingsDivider()
-			SettingsToggle(title: "Draft replies", detail: "Offers a reply for conversations marked Needs reply.", isOn: $draftReplies)
-			SettingsDivider()
-			SettingsToggle(title: "Show the assistant on Today", detail: "A card with what it can do for your day.", isOn: $todayBrief)
-			SettingsDivider()
-			SettingsToggle(title: "Archive without asking", detail: "Moves Can archive conversations to Archive as soon as they are sorted. Off by default.", isOn: $autoArchive)
-		}
-		if ai.providers.count > 0 {
-			WideButton(title: "More providers and models…") { store.settingsPage = .ai }
+	}
+
+	private func behaviour(_ title: String, _ detail: String, _ isOn: Binding<Bool>) -> some View {
+		VStack(spacing: 0) {
+			Rectangle().fill(Folio.line).frame(height: 1)
+			HStack(spacing: 20) {
+				VStack(alignment: .leading, spacing: 2) {
+					Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink)
+					Text(detail).font(.system(size: 13)).foregroundStyle(Folio.meta).fixedSize(horizontal: false, vertical: true)
+				}
+				Spacer(minLength: 12)
+				Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).tint(Folio.accent).controlSize(.large)
+			}
+			.frame(minHeight: 64)
 		}
 	}
 
@@ -905,52 +945,66 @@ private struct AssistantSettingsPage: View {
 		let connected = config.map(ai.isReady) ?? false
 		let inUse = config?.id == ai.active?.id && connected
 		let installed = service.preset.localCLI?.isInstalled ?? true
-		return VStack(alignment: .leading, spacing: 14) {
-			HStack(spacing: 10) {
-				HIcon(service.icon, size: 18)
-					.frame(width: 40, height: 40)
-					.background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(AppTheme.composerContextFill))
-				VStack(alignment: .leading, spacing: 1) {
-					Text(service.name).font(.system(size: 16, weight: .bold))
-					Text(service.maker).font(Typography.meta).foregroundStyle(.secondary)
+		return VStack(alignment: .leading, spacing: 22) {
+			HStack(spacing: 14) {
+				HIcon(service.icon, size: 22)
+					.foregroundStyle(connected ? Folio.onDark : Folio.ink)
+					.frame(width: 48, height: 48)
+					.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(connected ? Folio.dark : Folio.chip))
+				VStack(alignment: .leading, spacing: 2) {
+					Text(service.name).font(.system(size: 18, weight: .bold)).tracking(-0.36).foregroundStyle(Folio.ink)
+					Text(service.maker).font(.system(size: 13)).foregroundStyle(Folio.meta)
 				}
 				Spacer(minLength: 4)
-				HStack(spacing: 5) {
-					Circle().fill(connected ? ThreadStatus.longTerm.dot : ThreadStatus.canArchive.dot).frame(width: 6, height: 6)
-					Text(connected ? "Connected" : "Not connected").font(Typography.meta.weight(.semibold))
+				HStack(spacing: 7) {
+					Circle().fill(connected ? Folio.connectedDot : ThreadStatus.canArchive.dot).frame(width: 7, height: 7)
+					Text(connected ? (inUse ? "Connected · in use" : "Connected") : "Not connected").font(.system(size: 12.5, weight: .semibold))
 				}
-				.foregroundStyle(connected ? ThreadStatus.longTerm.ink : ThreadStatus.canArchive.ink)
-				.padding(.horizontal, 9).padding(.vertical, 4)
-				.background(Capsule().fill(connected ? ThreadStatus.longTerm.tint : ThreadStatus.canArchive.tint))
+				.foregroundStyle(connected ? Folio.connectedInk : ThreadStatus.canArchive.ink)
+				.padding(.horizontal, 12).frame(height: 28)
+				.background(Capsule().fill(connected ? Folio.connectedFill : Folio.chip))
 				.fixedSize()
 			}
-			Text(connected
-				 ? "\(config?.model ?? "")\(inUse ? " · in use" : ""). Runs through your \(service.name) login on this Mac, no API key."
-				 : installed
-				 ? "Uses your \(service.name) login on this Mac. No API key needed. You can connect both and choose one."
-				 : "The \(service.preset.localCLI?.command ?? "") command isn't installed on this Mac. Install it and sign in, then reopen Settings.")
-				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+			VStack(alignment: .leading, spacing: 4) {
+				if connected {
+					Text("Runs the \(service.preset.localCLI?.command ?? "") command with your \(service.name) sign-in")
+					Text("Model: \(config?.model ?? "default") · no API key")
+				} else if installed {
+					Text("Sign in with your paid account to use it as your assistant.")
+					Text("You can connect both and choose one per task.")
+				} else {
+					Text("The \(service.preset.localCLI?.command ?? "") command isn't installed on this Mac.")
+					Text("Install it and sign in, then reopen Settings.")
+				}
+			}
+			.font(.system(size: 14)).lineSpacing(3).foregroundStyle(Folio.body)
 			Spacer(minLength: 0)
-			HStack(spacing: 8) {
+			HStack(spacing: 10) {
 				if let config, connected {
-					Button("Manage") { edit(config, isNew: false) }.buttonStyle(.pill)
-					if !inUse { Button("Use \(service.name)") { ai.select(providerID: config.id, model: config.model) }.buttonStyle(.pill) }
-					Button("Disconnect") { ai.remove(config.id) }.buttonStyle(.pill).foregroundStyle(.red)
+					Button("Manage account") { edit(config, isNew: false) }
+						.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke))
+					if !inUse {
+						Button("Use \(service.name)") { ai.select(providerID: config.id, model: config.model) }
+							.buttonStyle(FolioOutlineButtonStyle())
+					}
+					Button("Disconnect") { ai.remove(config.id) }
+						.buttonStyle(.plain).font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.body)
+						.padding(.horizontal, 12)
 				} else {
 					Button("Connect \(service.name)") {
 						let config = config ?? AIProviderConfig(preset: service.preset)
 						ai.save(config, key: "")
 						ai.select(providerID: config.id, model: config.model)
 					}
-					.buttonStyle(AccentPillStyle())
+					.buttonStyle(FolioFilledButtonStyle())
 					.disabled(!installed)
 				}
 			}
 		}
-		.frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
-		.padding(18)
-		.background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(connected ? ThreadStatus.needsReply.tint.opacity(0.5) : AppTheme.elevated))
-		.overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(connected ? ThreadStatus.needsReply.dot.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1))
+		.frame(maxWidth: .infinity, minHeight: 190, alignment: .topLeading)
+		.padding(24)
+		.background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(connected ? Folio.accentSoft : Folio.card))
+		.overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(connected ? Folio.accentStroke : Folio.line, lineWidth: 1))
 		.sheet(isPresented: Binding(get: { editing?.preset == service.preset }, set: { if !$0 { editing = nil } })) {
 			ProviderEditor(config: Binding(get: { editing ?? AIProviderConfig(preset: service.preset) }, set: { editing = $0 }),
 						   key: $keyText, isNew: editingIsNew, cache: $modelCache) {

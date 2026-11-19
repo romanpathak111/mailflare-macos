@@ -54,10 +54,29 @@ final class LocalCLIEnvironment: @unchecked Sendable {
 		return value
 	}
 
+	/// Where the CLIs are usually installed. Checked first, so finding one never has to start a
+	/// shell (which is slow, and must not happen while SwiftUI is drawing).
+	private static var usualDirectories: [String] {
+		let home = FileManager.default.homeDirectoryForCurrentUser.path
+		return ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.claude/local"]
+	}
+
 	func locate(_ command: String) -> URL? {
+		lock.lock()
+		if let url = located[command], FileManager.default.isExecutableFile(atPath: url.path) { lock.unlock(); return url }
+		for dir in Self.usualDirectories {
+			let candidate = URL(fileURLWithPath: dir).appendingPathComponent(command)
+			if FileManager.default.isExecutableFile(atPath: candidate.path) {
+				located[command] = candidate
+				lock.unlock()
+				return candidate
+			}
+		}
+		lock.unlock()
+		// Elsewhere: look along the login shell's PATH, but never from the main thread.
+		guard !Thread.isMainThread else { return nil }
 		let searchPath = path
 		lock.lock(); defer { lock.unlock() }
-		if let url = located[command], FileManager.default.isExecutableFile(atPath: url.path) { return url }
 		for dir in searchPath.split(separator: ":") {
 			let candidate = URL(fileURLWithPath: String(dir)).appendingPathComponent(command)
 			if FileManager.default.isExecutableFile(atPath: candidate.path) {
@@ -102,7 +121,8 @@ final class LocalCLIEnvironment: @unchecked Sendable {
 		process.standardInput = FileHandle.nullDevice
 		do { try process.run() } catch { return nil }
 		let data = out.fileHandleForReading.readDataToEndOfFile()
-		process.waitUntilExit()
+		// Not waitUntilExit: it runs the current run loop, which can re-enter SwiftUI mid-update.
+		while process.isRunning { usleep(2_000) }
 		return String(data: data, encoding: .utf8)
 	}
 }
@@ -486,7 +506,7 @@ final class LocalCLIRun: @unchecked Sendable {
 		try? input.fileHandleForWriting.close()
 
 		for await line in lines where !line.isEmpty { onLine(line) }
-		process.waitUntilExit()
+		while process.isRunning { try? await Task.sleep(for: .milliseconds(20)) }
 
 		if wasCancelled || Task.isCancelled { throw CancellationError() }
 		let detail = errorTail.text.split(separator: "\n").last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }

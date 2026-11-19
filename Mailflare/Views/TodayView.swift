@@ -9,12 +9,20 @@ struct TodayView: View {
 
 	private var statuses: StatusStore { store.statuses }
 
+	/// "Thursday, 19 November".
+	private static let dateLine: DateFormatter = {
+		let f = DateFormatter()
+		f.locale = Locale(identifier: "en_AU")
+		f.dateFormat = "EEEE, d MMMM"
+		return f
+	}()
+
 	var body: some View {
 		let needsReply = statuses.records(with: .needsReply)
 		let waiting = statuses.records(with: .waiting)
 		let archivable = statuses.count(.canArchive)
 		ScrollView {
-			VStack(alignment: .leading, spacing: 28) {
+			VStack(alignment: .leading, spacing: 32) {
 				header(needsReply: needsReply, waiting: waiting, archivable: archivable)
 				tiles
 				if showsAssistant { assistantCard(needsReply: needsReply) }
@@ -22,18 +30,18 @@ struct TodayView: View {
 					emptyNote(sorted: !statuses.records.isEmpty)
 				} else {
 					if !needsReply.isEmpty {
-						section("Needs your reply", status: .needsReply, records: needsReply)
+						section("Needs your reply", status: .needsReply, records: needsReply, showsBoardLink: true)
 					}
 					if !waiting.isEmpty {
-						section("Waiting on others", status: .waiting, records: waiting)
+						section("Waiting on others", status: .waiting, records: waiting, showsBoardLink: false)
 					}
 				}
 			}
-			.frame(maxWidth: 820, alignment: .leading)
-			.padding(.horizontal, 40).padding(.vertical, 36)
+			.frame(maxWidth: 1040, alignment: .leading)
+			.padding(.horizontal, 56).padding(.top, 56).padding(.bottom, 40)
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
-		.background(AppTheme.background)
+		.background(Folio.card)
 	}
 
 	// MARK: Header
@@ -47,72 +55,77 @@ struct TodayView: View {
 	}
 
 	private func header(needsReply: [ThreadRecord], waiting: [ThreadRecord], archivable: Int) -> some View {
-		VStack(alignment: .leading, spacing: 8) {
-			Text(Date.now.formatted(Date.FormatStyle().weekday(.wide).day().month(.wide)))
-				.font(.system(size: 30, weight: .bold)).tracking(-0.6)
+		VStack(alignment: .leading, spacing: 10) {
+			// "Thursday, 19 November", as the mockup writes the date.
+			Text(Self.dateLine.string(from: .now))
+				.font(.system(size: 40, weight: .bold)).tracking(-1.4).foregroundStyle(Folio.ink)
 			Text("\(greeting). " + StatusAssistant.brief(needsReply: needsReply, waiting: waiting, archivable: archivable, longTerm: statuses.count(.longTerm)))
-				.font(.system(size: 15)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+				.font(.system(size: 17)).lineSpacing(3).foregroundStyle(Folio.body).fixedSize(horizontal: false, vertical: true)
 		}
 	}
 
 	// MARK: Snapshot
 
-	/// The four statuses and how many conversations each holds; each opens its column on the board.
+	/// The four statuses and how many conversations each holds; each opens its list of mail.
 	private var tiles: some View {
-		HStack(spacing: 12) {
+		HStack(spacing: 14) {
 			ForEach(ThreadStatus.allCases) { status in
-				Button { store.openScreen(.board, status: status) } label: {
-					VStack(alignment: .leading, spacing: 12) {
-						HStack(spacing: 7) {
+				Button { store.openStatusList(status) } label: {
+					VStack(alignment: .leading, spacing: 14) {
+						HStack(spacing: 8) {
 							StatusDot(status: status)
-							Text(status.title).font(Typography.notice.weight(.semibold)).lineLimit(1)
+							Text(status.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
 						}
 						.foregroundStyle(status.ink)
-						Text("\(statuses.count(status))").font(.system(size: 32, weight: .bold)).tracking(-0.6)
+						Text("\(statuses.count(status))").font(.system(size: 36, weight: .bold)).tracking(-1.1).foregroundStyle(Folio.ink)
 					}
 					.frame(maxWidth: .infinity, alignment: .leading)
-					.padding(.horizontal, 16).padding(.vertical, 14)
-					.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(status.tint))
+					.padding(.horizontal, 20).padding(.vertical, 18)
+					.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(status.tileFill))
+					.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(status.tileStroke, lineWidth: 1))
 					.contentShape(Rectangle())
 				}
 				.buttonStyle(.plain)
-				.help("Open \(status.title) on the board")
+				.help("Show the mail marked \(status.title)")
 			}
 		}
 	}
 
 	// MARK: Assistant
 
-	/// What the assistant can do now: draft the replies, or sort what has no status yet.
+	/// The assistant's brief, with the one thing it can do next: draft the replies, or sort new mail.
 	private func assistantCard(needsReply: [ThreadRecord]) -> some View {
 		let connected = store.ai.isConfigured
-		return HStack(spacing: 14) {
+		return HStack(spacing: 18) {
 			HIcon(.sparkles, size: 18)
-				.foregroundStyle(AppTheme.prominentPillText)
-				.frame(width: 38, height: 38)
-				.background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(AppTheme.prominentPillFill))
-			VStack(alignment: .leading, spacing: 2) {
-				Text(connected ? "Assistant" : "Connect an assistant").font(Typography.bodySemibold)
+				.foregroundStyle(Folio.onDark)
+				.frame(width: 40, height: 40)
+				.background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Folio.dark))
+			VStack(alignment: .leading, spacing: 3) {
+				Text(connected ? "Assistant brief" : "Connect an assistant").font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink)
 				Text(cardText(connected: connected, needsReply: needsReply.count))
-					.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+					.font(.system(size: 14)).lineSpacing(2).foregroundStyle(Folio.body).fixedSize(horizontal: false, vertical: true)
 			}
 			Spacer(minLength: 8)
 			if store.isSortingStatuses { ProgressView().controlSize(.small) }
-			Button("Sort unsorted mail") { store.sortUnsortedMail() }
-				.buttonStyle(.pill).disabled(store.isSortingStatuses)
-			if connected {
-				Button("Draft replies") {
+			if !connected {
+				Button("Connect") { store.settingsPage = .assistant }
+					.buttonStyle(FolioFilledButtonStyle())
+			} else if needsReply.isEmpty || !draftsReplies {
+				Button("Sort unsorted mail") { store.sortUnsortedMail() }
+					.buttonStyle(FolioFilledButtonStyle()).disabled(store.isSortingStatuses)
+			} else {
+				Button("Review drafts") {
 					store.chatOpen = true
 					store.chat.send(StatusAssistant.draftRepliesPrompt(for: needsReply), store: store)
 				}
-				.buttonStyle(AccentPillStyle()).disabled(needsReply.isEmpty || !draftsReplies)
-			} else {
-				Button("Connect") { store.settingsPage = .assistant }
-					.buttonStyle(AccentPillStyle())
+				.buttonStyle(FolioFilledButtonStyle())
+				.help("Draft a reply to each conversation that needs one, for you to review")
 			}
 		}
-		.padding(.horizontal, 18).padding(.vertical, 14)
-		.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.composerContextFill))
+		.padding(.horizontal, 20).padding(.vertical, 18)
+		.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Folio.soft))
+		.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
 	}
 
 	private func cardText(connected: Bool, needsReply: Int) -> String {
@@ -123,33 +136,41 @@ struct TodayView: View {
 
 	// MARK: Lists
 
-	private func section(_ title: String, status: ThreadStatus, records: [ThreadRecord]) -> some View {
+	private func section(_ title: String, status: ThreadStatus, records: [ThreadRecord], showsBoardLink: Bool) -> some View {
 		VStack(alignment: .leading, spacing: 0) {
 			HStack(alignment: .firstTextBaseline) {
-				Text(title).font(.system(size: 18, weight: .bold)).tracking(-0.3)
+				Text(title).font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
 				Spacer()
-				Button("Open board") { store.openScreen(.board, status: status) }
-					.buttonStyle(.light).font(Typography.notice.weight(.semibold)).foregroundStyle(Color.accentColor)
+				if showsBoardLink {
+					Button("Open board") { store.openScreen(.board) }
+						.buttonStyle(.plain).font(.system(size: 13, weight: .semibold)).foregroundStyle(Folio.selectionInk)
+				}
 			}
-			.padding(.bottom, 10)
-			ForEach(records) { record in
-				Rectangle().fill(AppTheme.cardStroke).frame(height: 1)
-				TodayRow(record: record, status: status)
+			.padding(.bottom, 12)
+			GeometryReader { proxy in
+				let columns = TodayRow.Columns(width: proxy.size.width)
+				VStack(spacing: 0) {
+					ForEach(records) { record in
+						Rectangle().fill(Folio.line).frame(height: 1)
+						TodayRow(record: record, status: status, columns: columns)
+					}
+					Rectangle().fill(Folio.line).frame(height: 1)
+				}
 			}
-			Rectangle().fill(AppTheme.cardStroke).frame(height: 1)
+			.frame(height: CGFloat(records.count) * 64 + CGFloat(records.count + 1))
 		}
 	}
 
 	private func emptyNote(sorted: Bool) -> some View {
 		VStack(alignment: .leading, spacing: 6) {
-			Text(sorted ? "You're caught up" : "Nothing is sorted yet").font(Typography.bodySemibold)
+			Text(sorted ? "You're caught up" : "Nothing is sorted yet").font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink)
 			Text(sorted ? "Nothing needs your reply and nobody is holding you up. The Status board has the rest."
 				 : "Open a message and choose a status above it, or press Sort unsorted mail. Conversations that need you will show up here.")
-				.font(Typography.notice).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+				.font(.system(size: 14)).foregroundStyle(Folio.body).fixedSize(horizontal: false, vertical: true)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.padding(18)
-		.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(AppTheme.cardStroke, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+		.padding(20)
+		.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Folio.line, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
 	}
 }
 
@@ -158,7 +179,19 @@ private struct TodayRow: View {
 	@Environment(MailStore.self) private var store
 	let record: ThreadRecord
 	let status: ThreadStatus
+	let columns: Columns
 	@State private var isHovering = false
+
+	/// The mockup's grid: 36px avatar, subject 1.1fr, detail 1.6fr, 110px age, 84px button, 16px gaps.
+	struct Columns {
+		var subject: CGFloat
+		var detail: CGFloat
+		init(width: CGFloat) {
+			let flexible = max(160, width - 36 - 110 - 84 - 16 * 4)
+			subject = flexible * 1.1 / 2.7
+			detail = flexible * 1.6 / 2.7
+		}
+	}
 
 	private var detail: String {
 		if let ask = record.ask, !ask.isEmpty { return ask }
@@ -172,26 +205,25 @@ private struct TodayRow: View {
 	private var isDue: Bool { record.age() == "Due today" }
 
 	var body: some View {
-		HStack(spacing: 14) {
-			SenderAvatar(email: record.fromEmail, name: record.senderDisplay, size: 36)
+		HStack(spacing: 16) {
+			InitialsAvatar(name: record.senderDisplay, fill: status.avatarFill, ink: status.ink, size: 36)
 			VStack(alignment: .leading, spacing: 2) {
-				Text(record.subject.isEmpty ? "(No Subject)" : record.subject).font(Typography.bodySemibold).lineLimit(1)
-				Text(record.senderDisplay).font(Typography.notice).foregroundStyle(.secondary).lineLimit(1)
+				Text(record.subject.isEmpty ? "(No Subject)" : record.subject).font(.system(size: 15, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(1)
+				Text(record.senderDisplay).font(.system(size: 13)).foregroundStyle(Folio.meta).lineLimit(1)
 			}
-			.frame(minWidth: 150, maxWidth: 260, alignment: .leading)
-			Text(detail).font(Typography.body).foregroundStyle(.primary.opacity(0.85)).lineLimit(2)
-				.frame(maxWidth: .infinity, alignment: .leading)
+			.frame(width: columns.subject, alignment: .leading)
+			Text(detail).font(.system(size: 14)).foregroundStyle(Folio.body).lineLimit(1)
+				.frame(width: columns.detail, alignment: .leading)
 			Text(record.age())
-				.font(isDue ? Typography.notice.weight(.bold) : Typography.notice)
-				.foregroundStyle(isDue ? status.ink : Color.secondary)
-				.frame(width: 80, alignment: .trailing)
+				.font(.system(size: 13, weight: isDue ? .bold : .regular))
+				.foregroundStyle(isDue ? status.ink : Folio.meta)
+				.frame(width: 110, alignment: .trailing)
 			Button(status == .waiting ? (waitedLong ? "Follow up" : "Nudge") : "Reply") { store.reply(to: record) }
-				.buttonStyle(RowActionStyle(status: status, filled: isDue))
+				.buttonStyle(RowActionStyle(status: status, filled: isDue, strong: status != .waiting || waitedLong))
 				.frame(width: 84)
 		}
-		.padding(.vertical, 12)
-		.padding(.horizontal, 6)
-		.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(isHovering ? AppTheme.rowHighlight : .clear))
+		.frame(height: 64)
+		.background(Rectangle().fill(isHovering ? AppTheme.rowHighlight : .clear))
 		.contentShape(Rectangle())
 		.onHover { isHovering = $0 }
 		.onTapGesture { store.open(record) }
@@ -209,18 +241,21 @@ private struct TodayRow: View {
 	}
 }
 
-/// The button at the end of a row, in its status's colour; filled when the row is due today.
+/// The button at the end of a row: outlined in its status's colour, filled blue when due today,
+/// and plain grey for a gentle nudge.
 private struct RowActionStyle: ButtonStyle {
 	var status: ThreadStatus
 	var filled: Bool
+	var strong: Bool
 
 	func makeBody(configuration: Configuration) -> some View {
 		configuration.label
 			.font(.system(size: 13, weight: .semibold))
-			.foregroundStyle(filled ? Color.white : status.ink)
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 6)
-			.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(filled ? Color.accentColor : status.tint))
+			.foregroundStyle(filled ? Color.white : (strong ? status.ink : Folio.body))
+			.frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+			.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(filled ? Folio.accent : Folio.card))
+			.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(filled ? .clear : (strong ? status.actionStroke : Folio.line), lineWidth: 1))
+			.contentShape(Rectangle())
 			.opacity(configuration.isPressed ? 0.7 : 1)
 	}
 }
