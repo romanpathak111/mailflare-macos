@@ -159,7 +159,8 @@ private struct MessageDetail: View {
 												removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
 				}
 				// Replies sent from the reply box slide in at the end, like the rest of the conversation.
-				ForEach(store.sentReplies[message.id] ?? []) { reply in
+				// Until the server's copy arrives (then the conversation trail shows it, once).
+				ForEach((store.sentReplies[message.id] ?? []).filter { !store.hasOwnMessage(after: $0.date, in: message) }) { reply in
 					SentReplyView(reply: reply) {
 						// Its text is measured after it appears, so follow the growth to the bottom.
 						withAnimation(.snappy(duration: 0.3)) { scroller.scrollTo("end", anchor: .bottom) }

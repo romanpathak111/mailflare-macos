@@ -26,7 +26,27 @@ extension MailStore {
 			for m in list where m.threadId == anchor.threadId { found[m.id] = m }
 		}
 		found[raw] = found[raw] ?? anchor
-		return found.values.sorted { $0.receivedAt < $1.receivedAt }
+		// Gmail keeps one email under several labels (Sent Mail and All Mail), each a copy here: one
+		// email shows once. The open message wins, then a copy outside All Mail.
+		var unique: [String: MessageSummary] = [:]
+		for m in found.values {
+			let key = "\(m.receivedAt)|\(m.fromEmail.lowercased())|\(m.subject)|\(m.preview.prefix(80))"
+			if let kept = unique[key] {
+				let keepNew = m.id == raw || (kept.id != raw && kept.mailboxId.localizedCaseInsensitiveContains("All Mail"))
+				if keepNew { unique[key] = m }
+			} else {
+				unique[key] = m
+			}
+		}
+		return unique.values.sorted { $0.receivedAt < $1.receivedAt }
+	}
+
+	/// Whether the conversation now holds a message of the user's own sent at or after `date`: the
+	/// server's copy of a reply sent from the reply box, which then replaces the box's own note of it.
+	func hasOwnMessage(after date: Date, in anchor: MessageSummary) -> Bool {
+		let account = ownerOf(anchor.id).account
+		let since = Int64(date.timeIntervalSince1970) - 120
+		return conversation(of: anchor, accountID: account).contains { $0.receivedAt >= since && isMine($0, accountID: account) }
 	}
 
 	/// Whether a message was written by one of the account's own addresses.
