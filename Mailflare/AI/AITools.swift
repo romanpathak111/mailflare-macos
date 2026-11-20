@@ -54,6 +54,9 @@ struct AIMailTools {
 			"emailIds": ["type": "array", "items": ["type": "string"], "description": "Up to 20 emailIds."],
 			"status": ["type": "string", "enum": ["needsReply", "waiting", "canArchive", "longTerm", "none"]],
 		], required: ["emailIds", "status"]),
+		tool("show_emails", "Show the user the emails that answer their request, as cards they can click to open. Call it whenever the user asks to find, see, show, list or open emails, with the emailIds you found, most relevant first.", [
+			"emailIds": ["type": "array", "items": ["type": "string"], "description": "Up to 8 emailIds from search_emails, list_emails or get_thread."],
+		], required: ["emailIds"]),
 		tool("list_folders", "List the user's own folders (or Gmail labels) by name."),
 		tool("move_to_folder", "File emails into one of the user's folders, by its name as list_folders gives it.", [
 			"emailIds": ["type": "array", "items": ["type": "string"], "description": "Up to 20 emailIds."],
@@ -122,6 +125,7 @@ struct AIMailTools {
 		case "mark_email_read": done ? "Updated read state" : "Updating read state…"
 		case "move_email", "move_emails": done ? "Moved mail" : "Moving mail…"
 		case "set_status": done ? "Set a status" : "Setting a status…"
+		case "show_emails": done ? "Found these" : "Gathering the emails…"
 		case "list_folders": done ? "Listed folders" : "Listing folders…"
 		case "move_to_folder": done ? "Filed mail" : "Filing mail…"
 		case "read_file": done ? "Read a file" : "Reading a file…"
@@ -172,7 +176,15 @@ struct AIMailTools {
 
 	/// Runs a tool and returns its JSON result; a failure is also JSON, for the model to read.
 	func run(name: String, arguments: String) async -> (json: String, ok: Bool) {
-		let args = (arguments.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+		var args = (arguments.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+		// Emails found across accounts carry their account in their id: act in that account, on its own id.
+		capture.account = nil
+		for key in ["emailId", "draftId"] {
+			if let id = args[key] as? String { let parts = ViewMessageID.split(id); if let a = parts.account { capture.account = a; args[key] = parts.message } }
+		}
+		if let list = args["emailIds"] as? [String], name != "show_emails" {
+			args["emailIds"] = list.map { id -> String in let parts = ViewMessageID.split(id); if let a = parts.account { capture.account = a }; return parts.message }
+		}
 		do {
 			guard store.mailCore != nil else { throw Failure(message: "No account is open.") }
 			let result = try await dispatch(name, args)
@@ -206,6 +218,7 @@ struct AIMailTools {
 		case "mcp_call_tool": return try await mcpCall(args)
 		case "move_email": return try move(ids: [try string(args, "emailId")], to: try string(args, "destination"))
 		case "set_status": return try setStatus(args)
+		case "show_emails": return try showEmails(args)
 		case "list_folders": return ["folders": store.customFolders(of: accountID).map(\.name)]
 		case "move_to_folder": return try moveToFolder(args)
 		case "move_emails":
@@ -215,7 +228,7 @@ struct AIMailTools {
 	}
 
 	private var core: MailCore { store.mailCore! }
-	private var accountID: String { store.currentAccountID }
+	private var accountID: String { capture.account ?? store.currentAccountID }
 
 	private func string(_ args: [String: Any], _ key: String) throws -> String {
 		guard let value = args[key] as? String, !value.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -298,12 +311,38 @@ struct AIMailTools {
 		return ["threadId": threadID, "messages": messages]
 	}
 
+	private func showEmails(_ args: [String: Any]) throws -> [String: Any] {
+		let ids = (args["emailIds"] as? [String]) ?? []
+		var shown: [ShownEmail] = []
+		for id in ids.prefix(8) {
+			let parts = ViewMessageID.split(id)
+			let account = parts.account ?? store.currentAccountID
+			guard let m = (try? core.messageSummary(accountId: account, messageId: parts.message)) ?? nil else { continue }
+			shown.append(ShownEmail(accountID: account, messageID: m.id, from: m.senderDisplay, subject: m.subject,
+									preview: PreviewText.plain(m.preview), date: m.date))
+		}
+		capture.shown = shown
+		guard !shown.isEmpty else { throw Failure(message: "None of those emailIds were found. Use ids exactly as search_emails returned them.") }
+		return ["shown": shown.count]
+	}
+
 	private func search(_ args: [String: Any]) async throws -> [String: Any] {
 		let query = try string(args, "query")
 		let count = limit(args)
-		var list = try core.search(accountId: accountID, query: query, limit: count)
-		if list.isEmpty, let remote = try? await core.searchServer(accountId: accountID, query: query, limit: count) { list = remote }
-		return ["emails": list.map(Self.brief)]
+		// Every account: they are departments of one person's mail. Ids carry their account.
+		var found: [(account: Account, summary: MessageSummary)] = []
+		for account in store.accountList {
+			var list = (try? core.search(accountId: account.id, query: query, limit: count)) ?? []
+			if list.isEmpty, let remote = try? await core.searchServer(accountId: account.id, query: query, limit: count) { list = remote }
+			found += list.map { (account, $0) }
+		}
+		found.sort { $0.summary.receivedAt > $1.summary.receivedAt }
+		return ["emails": found.prefix(Int(count)).map { item -> [String: Any] in
+			var brief = Self.brief(item.summary)
+			brief["emailId"] = ViewMessageID.make(account: item.account.id, message: item.summary.id)
+			brief["account"] = store.accountName(item.account)
+			return brief
+		}]
 	}
 
 	// MARK: Drafting
@@ -313,6 +352,11 @@ struct AIMailTools {
 	final class DraftCapture {
 		var draft: ChatDraft?
 		var batch: EmailBatch?
+		/// The account the current call acts in, from the ids it was given.
+		var account: String?
+		/// The emails show_emails put on screen.
+		var shown: [ShownEmail] = []
+		func takeShown() -> [ShownEmail] { defer { shown = [] }; return shown }
 		func take() -> ChatDraft? { defer { draft = nil }; return draft }
 		func takeBatch() -> EmailBatch? { defer { batch = nil }; return batch }
 	}

@@ -78,6 +78,7 @@ struct AIChatPanel: View {
 					.allowsHitTesting(false)
 			}
 		}
+		.onExitCommand { withAnimation(.easeInOut(duration: 0.2)) { store.chatExpanded = false; store.chatOpen = false } }
 		.onAppear { if isOpen { focused = true } }
 		.task(id: store.currentAccountID) { chat.loadHistory(accountID: store.currentAccountID) }
 		.onChange(of: isOpen) { _, open in if open { focused = true } else { modelOpen = false } }
@@ -90,13 +91,13 @@ struct AIChatPanel: View {
 		HStack(spacing: 8) {
 			if chat.messages.isEmpty {
 				HIcon(.sparkles, size: 15).foregroundStyle(.secondary)
-				Text("Assistant").font(.system(size: 15, weight: .semibold))
+				Text(SecretarySettings.name).font(.system(size: 15, weight: .semibold))
 			} else {
 				// In a conversation, the title is the way back to the start screen.
 				Button { chat.reset(); focused = true } label: {
 					HStack(spacing: 8) {
 						HIcon(.arrowLeft, size: 15).foregroundStyle(.secondary)
-						Text("Assistant").font(.system(size: 15, weight: .semibold))
+						Text(SecretarySettings.name).font(.system(size: 15, weight: .semibold))
 					}
 					.contentShape(Rectangle())
 				}
@@ -108,6 +109,9 @@ struct AIChatPanel: View {
 			TitlebarIconButton(icon: store.chatExpanded ? .shrink : .expand, help: store.chatExpanded ? "Minimize" : "Maximize",
 							   tooltipAbove: false, iconSize: 15) {
 				withAnimation(.easeInOut(duration: 0.28)) { store.chatExpanded.toggle() }
+			}
+			TitlebarIconButton(icon: .close, help: "Close \(SecretarySettings.name) (Esc)", tooltipAbove: false, iconSize: 14) {
+				withAnimation(.easeInOut(duration: 0.2)) { store.chatExpanded = false; store.chatOpen = false }
 			}
 		}
 		.padding(.horizontal, 16)

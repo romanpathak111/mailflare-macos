@@ -11,6 +11,9 @@ struct ReaderView: View {
 				.background(AppTheme.background)
 		} else if let message = store.selectedMessage ?? (store.detail?.summary.id == store.selectedID ? store.detail?.summary : nil) {
 			MessageDetail(message: message).id(message.id)
+		} else if let status = store.statusList, !store.messages.isEmpty {
+			// In a tray with nothing open: the tray itself, with what to do about each email.
+			TrayOverview(status: status)
 		} else {
 			EmptyStateView(icon: .inbox, title: "No Message Selected")
 				.background(AppTheme.background)
@@ -152,6 +155,8 @@ private struct MessageDetail: View {
 				if store.role(of: message) != "drafts", draftRequested, store.ai.isConfigured {
 					SuggestedReplyCard(message: message)
 						.padding(.horizontal, 44).padding(.top, 24).padding(.bottom, 8)
+						.transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)),
+												removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
 				}
 				// Replies sent from the reply box slide in at the end, like the rest of the conversation.
 				ForEach(store.sentReplies[message.id] ?? []) { reply in
@@ -165,6 +170,11 @@ private struct MessageDetail: View {
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
+		// Sent: the suggested reply has done its job and folds away.
+		.onChange(of: store.repliedIDs.contains(message.id)) { _, replied in
+			if replied { withAnimation(.spring(duration: 0.45, bounce: 0.15)) { draftRequested = false } }
+		}
+		.onChange(of: message.id) { _, _ in draftRequested = false }
 		.onChange(of: store.sentReplies[message.id]?.count ?? 0) { _, _ in
 			DispatchQueue.main.async { withAnimation(.snappy(duration: 0.35)) { scroller.scrollTo("end", anchor: .bottom) } }
 		}

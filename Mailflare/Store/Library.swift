@@ -2,6 +2,13 @@ import Foundation
 import MailflareCore
 
 /// One folder of the Library, in the department (account) it belongs to.
+/// A folder guessed for a To file email, and why.
+struct FolderGuess: Hashable {
+	var id: String
+	var name: String
+	var reason: String
+}
+
 struct LibraryFolder: Identifiable, Hashable {
 	var id: String
 	var accountID: String
@@ -151,6 +158,61 @@ extension MailStore {
 		return nil
 	}
 
+	/// Where a To file email should go: the usual folder for its sender, or else the guess made for it.
+	func suggestedFolder(for m: MessageSummary, accountID: String) -> (id: String, name: String, reason: String)? {
+		if let usual = usualFolder(for: m, accountID: accountID) { return usual }
+		let raw = ViewMessageID.split(m.id).message
+		guard let guess = folderGuesses[StatusStore.key(account: accountID, message: raw)] else { return nil }
+		return (guess.id, guess.name, guess.reason)
+	}
+
+	/// Guesses a folder for each To file email that has no usual one: first a folder whose name the
+	/// email's sender or subject contains, then Sam reads the rest against the account's folder list.
+	func guessFolders(for records: [ThreadRecord]) {
+		let open = records.filter { r in
+			guard r.status == .longTerm, !folderGuessesAsked.contains(r.id) else { return false }
+			let summary = MessageSummary.stand(in: r)
+			return usualFolder(for: summary, accountID: r.accountID) == nil
+		}
+		guard !open.isEmpty else { return }
+		open.forEach { folderGuessesAsked.insert($0.id) }
+		var left: [ThreadRecord] = []
+		for r in open {
+			if let hit = Self.nameMatch(r, folders: libraryFolders(of: r.accountID)) { folderGuesses[r.id] = hit } else { left.append(r) }
+		}
+		guard !left.isEmpty, let client = ai.backgroundClient else { return }
+		Task { [weak self] in
+			guard let self else { return }
+			let items = left.map { r in
+				StatusAssistant.Item(id: r.id, from: r.senderDisplay + " <" + r.fromEmail + ">", subject: r.subject, preview: r.preview,
+									 folders: libraryFolders(of: r.accountID).map(\.path))
+			}
+			guard let found = try? await StatusAssistant.classify(client: client, items: items) else { return }
+			for r in left {
+				guard let name = found[r.id]?.folderName,
+					  let folder = libraryFolders(of: r.accountID).first(where: { $0.path.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+				folderGuesses[r.id] = FolderGuess(id: folder.id, name: folder.path, reason: "\(SecretarySettings.possessive) guess from the email")
+			}
+		}
+	}
+
+	/// A folder whose name shares a distinctive word with the sender, their address or the subject.
+	private static func nameMatch(_ r: ThreadRecord, folders: [LibraryFolder]) -> FolderGuess? {
+		let common: Set<String> = ["mail", "email", "inbox", "info", "notification", "notifications", "with", "from", "your", "this", "that",
+								   "about", "update", "updates", "news", "team", "other", "misc", "important", "personal", "work", "later", "reply"]
+		func words(_ text: String) -> Set<String> {
+			Set(text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count >= 4 && $0.allSatisfy(\.isLetter) && !common.contains($0) })
+		}
+		let haystack = words(r.fromName + " " + r.fromEmail + " " + r.subject)
+		var best: (LibraryFolder, String)?
+		for folder in folders {
+			if let word = words(folder.name).first(where: { haystack.contains($0) }) {
+				if best == nil || folder.depth > best!.0.depth { best = (folder, word) }
+			}
+		}
+		return best.map { FolderGuess(id: $0.0.id, name: $0.0.path, reason: "Its name matches \u{201C}\($0.1)\u{201D}") }
+	}
+
 	nonisolated static func isSharedDomain(_ domain: String) -> Bool {
 		["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com", "yahoo.com",
 		 "bigpond.com", "proton.me", "protonmail.com"].contains(domain.lowercased())
@@ -198,5 +260,14 @@ extension MailStore {
 			return org.prefix(1).uppercased() + org.dropFirst()
 		}
 		return trimmed.isEmpty ? email : trimmed
+	}
+}
+
+extension MessageSummary {
+	/// A summary standing in for a tray record, enough for the filing history (sender and id).
+	static func stand(in r: ThreadRecord) -> MessageSummary {
+		MessageSummary(id: r.messageID, threadId: r.threadID ?? "", mailboxId: "", fromName: r.fromName, fromEmail: r.fromEmail,
+					   toDisplay: "", subject: r.subject, preview: r.preview, receivedAt: Int64(r.receivedAt.timeIntervalSince1970),
+					   seen: true, flagged: false, hasAttachment: false)
 	}
 }

@@ -15,8 +15,25 @@ struct DeskView: View {
 	private static let tileStatuses: [ThreadStatus] = [.waiting, .longTerm, .canArchive]
 
 	var body: some View {
+		// Two columns when there is room: the trays on the left, Sam and what's coming up on the right,
+		// so the page is used edge to edge instead of one narrow column and an empty half.
+		GeometryReader { geo in
+			let side = geo.size.width >= 1000 ? min(440, max(360, geo.size.width * 0.34)) : 0
+			HStack(alignment: .top, spacing: 0) {
+				trays(width: geo.size.width - side - (side > 0 ? 1 : 0))
+				if side > 0 {
+					Rectangle().fill(Folio.softLine).frame(width: 1)
+					samColumn.frame(width: side)
+				}
+			}
+		}
+		.background(Folio.card)
+		.task { automation.run(store) }
+	}
+
+	private func trays(width: CGFloat) -> some View {
 		let proposals = automation.statusSuggestions
-		ScrollView {
+		return ScrollView {
 			VStack(alignment: .leading, spacing: 16) {
 				header(count: proposals.count)
 				if let lesson = Notebook.shared.pending { LessonCard(lesson: lesson) }
@@ -27,6 +44,7 @@ struct DeskView: View {
 					let needs = proposals.filter { automation.status(of: $0) == .needsReply }
 					if !needs.isEmpty { proposalCard(.needsReply, items: needs, rules: []) }
 					proposalTiles(proposals)
+					proposalActions(proposals)
 					if let open {
 						let items = proposals.filter { automation.status(of: $0) == open }
 						let rules = open == .longTerm ? automation.ruleSuggestions : []
@@ -35,12 +53,68 @@ struct DeskView: View {
 				}
 				headsUps
 			}
-			.frame(maxWidth: 980, alignment: .leading)
+			// A set width: the cards fill the column instead of shrinking to their text.
+			.frame(width: max(320, width - 72), alignment: .leading)
 			.padding(.horizontal, 36).padding(.top, 40).padding(.bottom, 40)
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
-		.background(Folio.card)
-		.task { automation.run(store) }
+		.frame(width: width)
+	}
+
+	// MARK: The right-hand column
+
+	private var samColumn: some View {
+		VStack(alignment: .leading, spacing: 16) {
+			let coming = comingUp
+			if !coming.isEmpty {
+				VStack(alignment: .leading, spacing: 0) {
+					Text("Coming up").font(.system(size: 14, weight: .semibold)).foregroundStyle(Folio.ink)
+						.padding(.horizontal, 14).padding(.vertical, 10)
+					ForEach(coming, id: \.record.id) { item in
+						Rectangle().fill(Folio.softLine).frame(height: 1)
+						Button { store.open(item.record) } label: {
+							HStack(alignment: .firstTextBaseline, spacing: 10) {
+								Text(item.when).font(.system(size: 12, weight: .semibold)).foregroundStyle(item.record.status.ink)
+									.frame(width: 64, alignment: .leading)
+								VStack(alignment: .leading, spacing: 1) {
+									Text(MailStore.who(name: item.record.fromName, email: item.record.fromEmail)).font(.system(size: 13, weight: .semibold)).foregroundStyle(Folio.ink).lineLimit(1)
+									Text(item.what).font(.system(size: 12.5)).foregroundStyle(Folio.body).lineLimit(2)
+								}
+								Spacer(minLength: 0)
+							}
+							.padding(.horizontal, 14).padding(.vertical, 9)
+							.contentShape(Rectangle())
+						}
+						.buttonStyle(.plain)
+					}
+				}
+				.background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Folio.soft))
+				.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
+			}
+			SamView(mode: .embedded).frame(maxHeight: .infinity)
+		}
+		.padding(.horizontal, 20).padding(.top, 40).padding(.bottom, 20)
+		.background(Folio.soft.opacity(0.5))
+	}
+
+	/// What has a date on it: answers due, and waits Sam will chase, soonest first.
+	private var comingUp: [(record: ThreadRecord, when: String, what: String, date: Date)] {
+		var items: [(ThreadRecord, String, String, Date)] = []
+		let cal = Calendar.current
+		func day(_ d: Date) -> String {
+			if cal.isDateInToday(d) { return "Today" }
+			if cal.isDateInTomorrow(d) { return "Tomorrow" }
+			if d < .now { return "Overdue" }
+			return d.formatted(.dateTime.weekday(.abbreviated).day())
+		}
+		for r in statuses.records(with: .needsReply) {
+			if let due = r.due { items.append((r, day(due), r.ask ?? r.subject, due)) }
+		}
+		for r in statuses.records(with: .waiting) {
+			let chase = cal.date(byAdding: .day, value: SecretarySettings.chaseDays, to: r.statusAt) ?? r.statusAt
+			items.append((r, day(chase), "Chase if still no answer: \(r.subject)", chase))
+		}
+		return items.sorted { $0.3 < $1.3 }.prefix(6).map { (record: $0.0, when: $0.1, what: $0.2, date: $0.3) }
 	}
 
 	// MARK: Header
@@ -90,6 +164,20 @@ struct DeskView: View {
 				Text("\(status.title) · \(items.count)").font(.system(size: 14, weight: .semibold)).foregroundStyle(status.ink)
 				Spacer()
 				Text(Self.hint(status)).font(.system(size: 13)).foregroundStyle(Folio.body)
+				if status == .canArchive, items.count > 1 {
+					Button("Archive all \(items.count)") {
+						withAnimation(.snappy(duration: 0.25)) { for item in items { automation.choose(.canArchive, for: item); automation.accept(item, store: store) } }
+					}
+					.buttonStyle(FolioFilledButtonStyle(height: 28))
+				} else if status == .longTerm {
+					let ready = items.filter { automation.folder(of: $0) != nil }
+					if ready.count > 1 {
+						Button("File \(ready.count) as shown") {
+							withAnimation(.snappy(duration: 0.25)) { for item in ready { automation.accept(item, store: store) } }
+						}
+						.buttonStyle(FolioFilledButtonStyle(height: 28))
+					}
+				}
 				if status != .needsReply {
 					Button { withAnimation(.snappy(duration: 0.2)) { open = nil } } label: {
 						HIcon(.close, size: 11).foregroundStyle(Folio.meta).frame(width: 22, height: 22)
@@ -134,6 +222,35 @@ struct DeskView: View {
 				}
 				.buttonStyle(.plain)
 				.help(items.isEmpty ? "" : (open == status ? "Hide these" : "Check them one by one"))
+			}
+		}
+	}
+
+	/// One click for a whole tile: archive everything in Can archive, file everything in To file that
+	/// has a folder. Each still shows in its tile first.
+	@ViewBuilder
+	private func proposalActions(_ proposals: [StatusSuggestion]) -> some View {
+		let archivable = proposals.filter { automation.status(of: $0) == .canArchive }
+		let fileable = proposals.filter { automation.status(of: $0) == .longTerm && automation.folder(of: $0) != nil }
+		if !archivable.isEmpty || !fileable.isEmpty {
+			HStack(spacing: 10) {
+				if !archivable.isEmpty {
+					Button("Archive all \(archivable.count) in Can archive") {
+						withAnimation(.snappy(duration: 0.25)) { for item in archivable { automation.accept(item, store: store, quietly: true) } }
+						store.showToast("Archived \(archivable.count)", icon: .archive)
+					}
+					.buttonStyle(FolioFilledButtonStyle(height: 34))
+					.help("Moves every email in Can archive to Archive")
+				}
+				if !fileable.isEmpty {
+					Button("File \(fileable.count) as shown") {
+						withAnimation(.snappy(duration: 0.25)) { for item in fileable { automation.accept(item, store: store, quietly: true) } }
+						store.showToast("Filed \(fileable.count)", detail: "Each in the folder shown", icon: .folder)
+					}
+					.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 34))
+					.help("Files each To file email in the folder shown in the tile")
+				}
+				Spacer(minLength: 0)
 			}
 		}
 	}
@@ -229,6 +346,22 @@ struct DeskView: View {
 							 foot: records.isEmpty ? "Empty." : "Open the tray")
 				}
 				.buttonStyle(.plain)
+			}
+		}
+		let archivable = statuses.count(.canArchive)
+		let toFile = statuses.count(.longTerm)
+		if archivable > 0 || toFile > 0 {
+			HStack(spacing: 10) {
+				if archivable > 0 {
+					Button("Archive all \(archivable) in Can archive") { withAnimation(.snappy(duration: 0.25)) { store.archiveAll(in: .canArchive) } }
+						.buttonStyle(FolioFilledButtonStyle(height: 34))
+						.help("Moves every email in Can archive to Archive")
+				}
+				if toFile > 0 {
+					Button("File To file as suggested") { withAnimation(.snappy(duration: 0.25)) { store.fileAllSuggested() } }
+						.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 34))
+						.help("Files each To file email in the folder you usually use for that sender. The rest stay.")
+				}
 			}
 		}
 		if records.isEmpty && statuses.records.isEmpty {

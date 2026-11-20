@@ -132,14 +132,16 @@ extension MailStore {
 
 	/// Desk confirmations: archive one message by its account's own id.
 	func archive(_ raw: String, accountID: String) {
-		_ = try? core?.moveMessages(accountId: accountID, messageIds: [raw], target: .role(role: "archive"))
-		statuses.remove(account: accountID, message: raw)
+		let moved = (try? core?.moveMessages(accountId: accountID, messageIds: [raw], target: .role(role: "archive"))) ?? nil
+		if (moved ?? 0) > 0 { statuses.remove(account: accountID, message: raw) }
+		else { banner = "Couldn't archive it: this account has no Archive folder SuperMail can use." }
 		afterDeskMove()
 	}
 
 	/// Desk confirmations: file one message into a Library folder.
 	func file(_ raw: String, accountID: String, into folderID: String, name: String, quietly: Bool = false) {
-		_ = try? core?.moveMessages(accountId: accountID, messageIds: [raw], target: .mailbox(id: folderID))
+		let moved = (try? core?.moveMessages(accountId: accountID, messageIds: [raw], target: .mailbox(id: folderID))) ?? nil
+		guard (moved ?? 0) > 0 else { banner = "Couldn't file it in \(name)."; afterDeskMove(); return }
 		statuses.remove(account: accountID, message: raw)
 		if !quietly { showToast("Filed in \(name)", icon: .folder) }
 		afterDeskMove()

@@ -130,7 +130,6 @@ struct ContentView: View {
 		.overlay(alignment: .topLeading) { titlebarLeading }
 		.overlay(alignment: .topLeading) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow && (narrowChat || !(layout.single && store.selectedID != nil)) { titlebarSearch } }
 		.overlay(alignment: .topTrailing) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow { titlebarTrailing } }
-		.overlay(alignment: .topTrailing) { if store.ai.isConfigured { assistantToggle } }
 		// "Should I remember this?" after a change made away from the Desk.
 		.overlay(alignment: .bottomTrailing) {
 			if let lesson = Notebook.shared.pending, store.screen == .mail || store.settingsPage != nil {
@@ -596,7 +595,7 @@ struct ContentView: View {
 	}
 
 	/// The assistant button sits at the far right of the title bar; the message actions end before it.
-	private var toggleInset: CGFloat { store.ai.isConfigured ? TitlebarIconButton.size + 6 : 0 }
+	private var toggleInset: CGFloat { 0 }
 
 	/// The sparkles button at the far right of the header; it opens and closes the assistant.
 	private var assistantToggle: some View {

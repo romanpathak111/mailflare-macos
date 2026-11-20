@@ -18,6 +18,7 @@ struct MessageListView: View {
 
 	/// The mailbox in view and how many messages it holds, on one row, with the unread filter.
 	private var header: some View {
+		VStack(alignment: .leading, spacing: 10) {
 		HStack(alignment: .firstTextBaseline, spacing: 10) {
 			if let status = store.statusList { StatusDot(status: status, size: 10).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 } }
 			Text(store.title).font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(Folio.ink)
@@ -42,8 +43,24 @@ struct MessageListView: View {
 			.titlebarTooltip(store.unreadOnly ? "Showing unread only" : "Filter unread messages", isHovering: isHoveringFilter)
 			.accessibilityLabel(store.unreadOnly ? "Showing unread only" : "Filter unread messages")
 		}
+		trayActions
+		}
 		.padding(.horizontal, 24)
 		.padding(.top, 22).padding(.bottom, store.sidebar == .allInboxes && store.statusList == nil ? 14 : 16)
+	}
+
+	/// A tray's one-click action, on its own row so it never squeezes the title.
+	@ViewBuilder
+	private var trayActions: some View {
+		if store.statusList == .canArchive, !store.messages.isEmpty {
+			Button("Archive all \(store.messages.count)") { withAnimation(.snappy(duration: 0.25)) { store.archiveAll(in: .canArchive) } }
+				.buttonStyle(FolioFilledButtonStyle(height: 30))
+				.help("Moves every email in this tray to Archive. You can find them in Archive later.")
+		} else if store.statusList == .longTerm, !store.messages.isEmpty {
+			Button("File all as suggested") { withAnimation(.snappy(duration: 0.25)) { store.fileAllSuggested() } }
+				.buttonStyle(FolioFilledButtonStyle(height: 30))
+				.help("Files each email in the folder shown under it. Emails with no suggestion stay here.")
+		}
 	}
 
 	/// A row is at most this tall (sender, subject, two preview lines). A row with a shorter preview is
@@ -398,8 +415,15 @@ struct MessageRow: View {
 			return (r.status, days > 0 ? "\(base) · \(days) day\(days == 1 ? "" : "s")" : base)
 		case .needsReply:
 			return (r.status, [r.ask, r.reason].compactMap { $0 }.first ?? "\(who) is waiting for you")
-		default:
-			return r.reason.map { (r.status, $0) }
+		case .longTerm:
+			// Where it would go, and why: "→ Bills and Payments · You've filed 4 from Apple here".
+			let summary = store.messages.first { $0.id == message.id } ?? message
+			if let usual = store.suggestedFolder(for: summary, accountID: r.accountID) {
+				return (r.status, "→ \(usual.name) · \(usual.reason)")
+			}
+			return (r.status, "No usual folder yet. Open it to choose one.")
+		case .canArchive:
+			return (r.status, r.reason ?? "Nothing here asks anything of you")
 		}
 	}
 

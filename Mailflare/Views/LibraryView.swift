@@ -228,7 +228,7 @@ private struct GistPane: View {
 					Button("Open full email", action: openFull).buttonStyle(FolioFilledButtonStyle(fill: Folio.dark, ink: Folio.onDark, height: 34))
 					Button("Ask about this") {
 						store.select(message.id)
-						store.chatOpen = true
+						AskPanelController.shared.show(store: store)
 					}
 					.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 34))
 				}

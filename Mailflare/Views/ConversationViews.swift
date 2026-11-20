@@ -21,12 +21,48 @@ struct StandingNote: View {
 						.fixedSize(horizontal: false, vertical: true)
 						.textSelection(.enabled)
 					// Drafting is asked for from the reply box at the bottom.
+					actions(for: record)
 				}
 				Spacer(minLength: 0)
 			}
 			.padding(14)
 			.background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Folio.soft))
 			.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
+		}
+	}
+
+	/// To file: where it usually goes, one click to file it there or a menu of the account's folders.
+	/// Can archive: archive it.
+	@ViewBuilder
+	private func actions(for record: ThreadRecord) -> some View {
+		switch record.status {
+		case .longTerm:
+			let usual = store.suggestedFolder(for: message, accountID: record.accountID)
+			let folders = store.libraryFolders(of: record.accountID)
+			HStack(spacing: 8) {
+				if let usual {
+					Button("File in \(usual.name)") {
+						store.file(record.messageID, accountID: record.accountID, into: usual.id, name: usual.name)
+					}
+					.buttonStyle(FolioFilledButtonStyle(height: 32))
+					.help(usual.reason)
+				}
+				Menu {
+					ForEach(folders) { f in
+						Button(f.path) { store.file(record.messageID, accountID: record.accountID, into: f.id, name: f.path) }
+					}
+				} label: {
+					Text(usual == nil ? "Choose a folder" : "Another folder").font(.system(size: 13, weight: .medium))
+				}
+				.menuStyle(.button).fixedSize()
+				if let usual { Text(usual.reason).font(.system(size: 12)).foregroundStyle(Folio.meta).lineLimit(1) }
+			}
+			.task(id: record.id) { store.guessFolders(for: [record]) }
+		case .canArchive:
+			Button("Archive") { store.archive(message.id) }
+				.buttonStyle(FolioFilledButtonStyle(height: 32))
+		default:
+			EmptyView()
 		}
 	}
 }

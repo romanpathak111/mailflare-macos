@@ -67,7 +67,8 @@ final class MailStore {
 	let mcp = MCPStore()
 	let chat = AIChatModel()
 	/// Whether the panel is showing: open, and a provider is set up to answer.
-	var chatVisible: Bool { chatOpen && ai.isConfigured }
+	/// The old assistant sidebar is gone: Sam (the ⌥ Space box and the Desk column) does it all.
+	var chatVisible: Bool { false }
 	/// Whether the assistant panel is open.
 	/// Starts closed: Ask Sam is the everyday way in, as in the mockup.
 	var chatOpen = false {
@@ -96,6 +97,9 @@ final class MailStore {
 	/// The mail given one status, listed from the statuses themselves (across accounts and folders,
 	/// archived mail included) when a status is chosen in the sidebar or on Today.
 	var statusList: ThreadStatus?
+	/// Messages whose reply has been delivered this session: their suggested reply folds away. Queued
+	/// is not enough; a reply that fails in the outbox keeps the card and its text.
+	var repliedIDs: Set<String> = []
 	var messages: [MessageSummary] = []
 	var total = 0
 	var selectedID: String?
@@ -1722,6 +1726,10 @@ final class MailStore {
 	@ObservationIgnored private var pendingRefresh: PendingRefresh?
 	/// When conversations were last checked for replies sent or received elsewhere.
 	/// Where each sender's mail has been filed, per account; see `filingHistory(of:)`.
+	/// Folder guesses for To file mail with no filing history, by record id: a folder whose name the
+	/// email matches, or Sam's reading of it. Made once per email, when its tray or note is shown.
+	var folderGuesses: [String: FolderGuess] = [:]
+	@ObservationIgnored var folderGuessesAsked: Set<String> = []
 	@ObservationIgnored var filingCache: [String: (at: Date, map: [String: (id: String, name: String, count: Int)])] = [:]
 	@ObservationIgnored var lastReconcile = Date.distantPast
 
@@ -2193,11 +2201,61 @@ final class MailStore {
 
 	func archive(ids: [String]) { moveToRole(ids, "archive") }
 	func junk(ids: [String]) { moveToRole(ids, "junk") }
+	// MARK: Leaving the trays
+
+	/// Where each message is before a move: its account, own id, conversation and folder.
+	private struct Spot { let account: String; let message: String; let thread: String; let mailbox: String }
+	private func spots(_ ids: [String]) -> [Spot] {
+		ids.compactMap { id in
+			let o = owner(of: id)
+			guard let m = (try? core?.messageSummary(accountId: o.account, messageId: o.message)) ?? nil else { return nil }
+			return Spot(account: o.account, message: o.message, thread: m.threadId, mailbox: m.mailboxId)
+		}
+	}
+
+	/// Archived, filed, junked or deleted: the conversation is dealt with, so it leaves Sam's trays,
+	/// whichever message of it carried the tray. Only messages that really left their folder count: a
+	/// move that failed, or had nowhere to go (no Archive folder), keeps its tray and its dates.
+	/// Returns how many moved.
+	@discardableResult
+	private func leaveTrays(_ before: [Spot]) -> Int {
+		var moved = 0
+		for spot in before {
+			let now = (try? core?.messageSummary(accountId: spot.account, messageId: spot.message)) ?? nil
+			guard now == nil || now?.mailboxId != spot.mailbox else { continue }
+			moved += 1
+			for record in statuses.records.values where record.accountID == spot.account
+				&& (record.messageID == spot.message || (!spot.thread.isEmpty && record.threadID == spot.thread)) {
+				statuses.remove(account: record.accountID, message: record.messageID)
+			}
+		}
+		return moved
+	}
+
+	/// What happened, said from the outcome, not the request.
+	private func reportMove(_ verb: String, moved: Int, of total: Int) {
+		guard total > 0 else { return }
+		if moved == 0 {
+			banner = verb == "Archived" ? "Nothing was archived: this account has no Archive folder SuperMail can use." : "Nothing was moved."
+		} else if moved < total {
+			banner = "\(verb) \(moved) of \(total). The rest stayed where they were and keep their tray."
+		} else if statusList != nil || screen != .mail {
+			showToast(moved == 1 ? verb : "\(verb) \(moved)", icon: .archive)
+		}
+	}
+
 	private func moveToRole(_ ids: [String], _ role: String) {
+		let before = spots(ids)
 		bulk(ids) { account, raw in _ = try core?.moveMessages(accountId: account, messageIds: raw, target: .role(role: role)) }
+		let moved = leaveTrays(before)
+		if role == "archive" { reportMove("Archived", moved: moved, of: before.count) }
+		if statusList != nil { reload() }
 	}
 	func trash(ids: [String]) {
+		let before = spots(ids)
 		bulk(ids) { account, raw in _ = try core?.deleteMessages(accountId: account, messageIds: raw) }
+		leaveTrays(before)
+		if statusList != nil { reload() }
 	}
 	/// Flags them all, or unflags them all when each is already flagged.
 	func toggleFlag(ids: [String]) {
@@ -2291,19 +2349,47 @@ final class MailStore {
 
 	func move(_ id: String, to box: Mailbox) {
 		let (acct, raw) = owner(of: id)
+		let before = spots([id])
 		leaving(id) { _ = try core?.moveMessages(accountId: acct, messageIds: [raw], target: .mailbox(id: box.id)) }
+		if leaveTrays(before) > 0, statusList != nil { reload() }
 	}
 
 	func archive(_ id: String) { moveToRole(id, "archive") }
 	func junk(_ id: String) { moveToRole(id, "junk") }
 	private func moveToRole(_ id: String, _ role: String) {
 		let (acct, raw) = owner(of: id)
+		let before = spots([id])
 		leaving(id) { _ = try core?.moveMessages(accountId: acct, messageIds: [raw], target: .role(role: role)) }
+		let moved = leaveTrays(before)
+		if role == "archive" { reportMove("Archived", moved: moved, of: before.count) }
+		if moved > 0, statusList != nil { reload() }
 	}
 	/// Moves to Trash, or deletes permanently from Trash and Drafts.
 	func trash(_ id: String) {
 		let (acct, raw) = owner(of: id)
+		let before = spots([id])
 		leaving(id) { _ = try core?.deleteMessages(accountId: acct, messageIds: [raw]) }
+		if leaveTrays(before) > 0, statusList != nil { reload() }
+	}
+
+	/// Archives every conversation in a tray at once (Can archive's "Archive all").
+	func archiveAll(in status: ThreadStatus) {
+		let ids = statuses.records(with: status).map { ViewMessageID.make(account: $0.accountID, message: $0.messageID) }
+		archive(ids: ids)
+	}
+
+	/// Files every To file conversation that has a suggested folder into it. Returns how many.
+	@discardableResult
+	func fileAllSuggested() -> Int {
+		var done = 0
+		for record in statuses.records(with: .longTerm) {
+			guard let summary = (try? core?.messageSummary(accountId: record.accountID, messageId: record.messageID)) ?? nil,
+				  let usual = suggestedFolder(for: summary, accountID: record.accountID) else { continue }
+			file(record.messageID, accountID: record.accountID, into: usual.id, name: usual.name, quietly: true)
+			done += 1
+		}
+		if done > 0 { showToast(done == 1 ? "Filed 1" : "Filed \(done)", detail: "Each in its usual folder", icon: .folder) }
+		return done
 	}
 
 	// VIPs and reminders live on this Mac only; the server has no such concept.
@@ -2460,7 +2546,10 @@ final class MailStore {
 		if send, message.to.isEmpty { throw CoreError.InvalidInput(message: "Add at least one valid recipient.") }
 		compose = nil
 		enqueue(message, accountID: draft.accountID ?? accountID, send: send, onSuccess: { [weak self] in
-			if send, let answered = draft.answeringID { self?.markAnswered(answered) }
+			guard let self, send, let answered = draft.answeringID else { return }
+			markAnswered(answered)
+			pendingReplies.append(PendingReply(accountID: draft.accountID ?? accountID, subject: message.subject,
+											   finish: { [weak self] in self?.repliedIDs.insert(answered) }, fail: {}))
 		}) { [weak self] in
 			guard let self else { return }
 			// Back where it was, unless another message took the composer meanwhile.
@@ -2565,23 +2654,24 @@ final class MailStore {
 				enqueue(message, accountID: acct, send: true, showsProgress: false, onSuccess: { [weak self] in
 					guard let self else { return }
 					// Queued, not sent yet: the box keeps its spinner until the core reports the reply out.
-					let finish: () -> Void = { [weak self] in
+					let finish: (Bool) -> Void = { [weak self] delivered in
 						guard let self else { return }
 						markAnswered(id)
+						if delivered { repliedIDs.insert(id) }
 						quickReplies.set("", for: key)
 						withAnimation(.snappy(duration: 0.35)) {
 							self.sentReplies[id, default: []].append(sent)
 							onSent()
 						}
 					}
-					let pending = PendingReply(accountID: acct, subject: message.subject, finish: finish, fail: onFailure)
+					let pending = PendingReply(accountID: acct, subject: message.subject, finish: { finish(true) }, fail: onFailure)
 					pendingReplies.append(pending)
 					// Offline or slow: it stays queued and goes out later, so don't hold the box forever.
 					Task { [weak self] in
 						try? await Task.sleep(for: .seconds(120))
 						guard let self, let index = pendingReplies.firstIndex(where: { $0.id == pending.id }) else { return }
 						pendingReplies.remove(at: index)
-						finish()
+						finish(false)
 					}
 				}, onFailure: onFailure)
 			} catch {
