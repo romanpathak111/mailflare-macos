@@ -131,6 +131,12 @@ struct ContentView: View {
 		.overlay(alignment: .topLeading) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow && (narrowChat || !(layout.single && store.selectedID != nil)) { titlebarSearch } }
 		.overlay(alignment: .topTrailing) { if store.settingsPage == nil && store.screen == .mail && !store.chatFillsWindow { titlebarTrailing } }
 		.overlay(alignment: .topTrailing) { if store.ai.isConfigured { assistantToggle } }
+		// "Should I remember this?" after a change made away from the Desk.
+		.overlay(alignment: .bottomTrailing) {
+			if let lesson = Notebook.shared.pending, store.screen == .mail || store.settingsPage != nil {
+				LessonCard(lesson: lesson).frame(width: 420).padding(24).transition(.move(edge: .bottom).combined(with: .opacity))
+			}
+		}
 		.animation(.easeInOut(duration: 0.2), value: store.chatOpen)
 		.animation(.easeInOut(duration: 0.28), value: store.chatExpanded)
 		.animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
@@ -311,10 +317,10 @@ struct ContentView: View {
 		Group {
 			if let page = store.settingsPage {
 				SettingsView(page: page)
-			} else if store.screen == .home {
-				TodayView()
-			} else if store.screen == .board {
-				StatusBoardView()
+			} else if store.screen == .home || store.screen == .board {
+				DeskView()
+			} else if store.libraryFolder != nil && store.libraryMode != .list {
+				LibraryView()
 			} else if layout.single {
 				// One column: the list until a message is chosen, then the message.
 				if store.selectedID == nil { MessageListView() } else { ReaderView() }

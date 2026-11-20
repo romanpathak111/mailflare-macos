@@ -122,6 +122,8 @@ final class MailStore {
 	/// worked out again then, whatever else they happen to read: a count with the default scope reads
 	/// nothing else that changes when a message is read.
 	private(set) var mailRevision = 0
+	/// Bumped when a Library folder's view (table, cards, list) changes, so the card redraws.
+	var libraryModeRevision = 0
 	/// The view whose inboxes are listed; nil lists the account in view as usual. Kept across
 	/// launches, so the app reopens on the Unified Inbox (or the view) it was closed on.
 	var activeViewID: String? {
@@ -662,6 +664,9 @@ final class MailStore {
 		let parts = ViewMessageID.split(id)
 		return (parts.account ?? accountID, parts.message)
 	}
+
+	/// The account and the account's own id for any listed message id.
+	func ownerOf(_ id: String) -> (account: String, message: String) { owner(of: id) }
 
 	/// The account a listed message belongs to; nil for the account in view outside a view.
 	func accountID(of message: MessageSummary) -> String? { ViewMessageID.split(message.id).account }
@@ -1714,6 +1719,8 @@ final class MailStore {
 	}
 	/// What the next coalesced refresh re-reads; nil when none is scheduled.
 	@ObservationIgnored private var pendingRefresh: PendingRefresh?
+	/// When conversations were last checked for replies sent or received elsewhere.
+	@ObservationIgnored var lastReconcile = Date.distantPast
 
 	/// Core events come in bursts (a sync reports mailboxes, then messages, then its end, for each
 	/// account), and each one used to re-read the store on the main thread and redraw the list and
@@ -1740,6 +1747,8 @@ final class MailStore {
 			if pending.list { self.reload() }
 			// New mail: file what the folder rules cover and look for suggestions.
 			if !pending.newMail.isEmpty { Automation.shared.run(self) }
+			// Replies sent from a phone or the web, and answers that came in, move the trays along.
+			if pending.list || !pending.newMail.isEmpty { self.reconcileConversations() }
 		}
 	}
 
@@ -2015,6 +2024,12 @@ final class MailStore {
 		archive(ids: records.map(listedID))
 		for record in records { statuses.remove(account: record.accountID, message: record.messageID) }
 		showToast("Archived \(records.count) conversation\(records.count == 1 ? "" : "s")", icon: .archive)
+	}
+
+	/// Says what a Needs you conversation asks for: a reply, a decision, a signature, a payment or a read.
+	func setKind(_ kind: NeedKind, for id: String) {
+		guard let record = statusRecord(of: id) else { return }
+		statuses.set(.needsReply, account: record.accountID, message: record.messageID, summary: nil, kind: kind)
 	}
 
 	/// A reply to this message went out: a conversation that needed one now waits for the other person.

@@ -755,3 +755,17 @@ struct SkeletonBar: View {
 			.onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { isDim = true } }
 	}
 }
+
+/// The blue call to action.
+struct AccentPillStyle: ButtonStyle {
+	@Environment(\.isEnabled) private var isEnabled
+
+	func makeBody(configuration: Configuration) -> some View {
+		configuration.label
+			.font(.system(size: 13, weight: .semibold))
+			.foregroundStyle(Color.white)
+			.padding(.horizontal, 14).padding(.vertical, 7)
+			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor))
+			.opacity(!isEnabled ? 0.45 : configuration.isPressed ? 0.7 : 1)
+	}
+}

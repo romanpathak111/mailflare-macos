@@ -62,10 +62,12 @@ final class Automation {
 	@ObservationIgnored private var lastStatusScan: Date = .distantPast
 
 	/// Webmail domains are shared by unrelated people, so they are never suggested as a whole.
-	private static let sharedDomains: Set<String> = [
+	nonisolated private static let sharedDomains: Set<String> = [
 		"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "yahoo.com.au",
 		"icloud.com", "me.com", "mac.com", "bigpond.com", "bigpond.net.au", "optusnet.com.au", "proton.me", "protonmail.com", "aol.com",
 	]
+
+	nonisolated static func isSharedDomain(_ domain: String) -> Bool { sharedDomains.contains(domain.lowercased()) }
 
 	private init() {
 		let defaults = UserDefaults.standard
@@ -89,14 +91,29 @@ final class Automation {
 
 	/// After new mail and when Today opens: file what the rules cover, then refresh the suggestions.
 	func run(_ store: MailStore, force: Bool = false) {
-		applyRules(store)
+		if SecretarySettings.autoFile { applyRules(store) }
 		if AssistantSettings.suggestFolders, force || Date().timeIntervalSince(lastRuleScan) > 300 {
 			lastRuleScan = Date()
 			scanRules(store)
 		}
-		if AssistantSettings.suggestStatus, force || Date().timeIntervalSince(lastStatusScan) > 600 {
+		if AssistantSettings.suggestStatus, force || sortIsDue {
 			lastStatusScan = Date()
 			Task { await suggestStatuses(store) }
+		}
+	}
+
+	/// Whether new mail should be sorted now, by the user's choice in Settings › Secretary.
+	private var sortIsDue: Bool {
+		switch SecretarySettings.sortMode {
+		case .onRequest: return false
+		case .arrival: return Date().timeIntervalSince(lastStatusScan) > 600
+		case .twiceDaily:
+			// The last 8 am or 4 pm that has passed: sort once after each.
+			let cal = Calendar.current
+			let now = Date()
+			let marks = [8, 16].compactMap { cal.date(bySettingHour: $0, minute: 0, second: 0, of: now) }.filter { $0 <= now }
+			let last = marks.max() ?? cal.date(byAdding: .day, value: -1, to: cal.date(bySettingHour: 16, minute: 0, second: 0, of: now) ?? now) ?? now
+			return lastStatusScan < last
 		}
 	}
 
@@ -226,11 +243,22 @@ final class Automation {
 			return StatusAssistant.Item(id: String(index), from: m.sender.formatted, subject: m.subject, preview: PreviewText.plain(m.preview))
 		}
 		var answers: [String: StatusAssistant.Suggestion] = [:]
-		if let client = store.ai.backgroundClient {
+		// The notebook and the approved folder rules decide first; the assistant reads the rest.
+		var open: [Int] = []
+		for (index, pair) in items.enumerated() {
+			if let entry = Notebook.shared.rule(for: pair.summary, account: pair.account), let status = entry.status {
+				answers[String(index)] = StatusAssistant.Suggestion(status: status, folderID: entry.folderID, folderName: entry.folderName, notebookID: entry.id)
+			} else if let rule = rules.first(where: { $0.accountID == pair.account && $0.matches(pair.summary) }) {
+				answers[String(index)] = StatusAssistant.Suggestion(status: .longTerm, folderID: rule.folderID, folderName: rule.folderName)
+			} else {
+				open.append(index)
+			}
+		}
+		if let client = store.ai.backgroundClient, !open.isEmpty {
 			// The on-device model reads a few at a time; the others take the batch at once.
 			let batch = client.onDevice ? 5 : 20
-			for start in stride(from: 0, to: items.count, by: batch) {
-				let slice = (start..<min(start + batch, items.count)).map(item)
+			for start in stride(from: 0, to: open.count, by: batch) {
+				let slice = open[start..<min(start + batch, open.count)].map(item)
 				if let found = try? await StatusAssistant.classify(client: client, items: slice) { answers.merge(found) { _, new in new } }
 			}
 		}
@@ -247,6 +275,20 @@ final class Automation {
 
 	/// Statuses the user picked in place of the suggested ones, before accepting, by suggestion id.
 	var statusChoices: [String: ThreadStatus] = [:]
+	/// Folders the user picked for To file, by suggestion id.
+	var folderChoices: [String: (id: String, name: String)] = [:]
+
+	func folder(of item: StatusSuggestion) -> (id: String, name: String)? {
+		if let picked = folderChoices[item.id] { return picked }
+		guard status(of: item) == .longTerm, let id = item.suggestion.folderID else { return nil }
+		return (id, item.suggestion.folderName ?? "Folder")
+	}
+
+	/// Files a suggestion into a folder before it is accepted: it becomes To file there.
+	func chooseFolder(_ id: String, name: String, for item: StatusSuggestion) {
+		statusChoices[item.id] = item.suggestion.status == .longTerm ? nil : .longTerm
+		folderChoices[item.id] = (id, name)
+	}
 
 	/// The status a suggestion will be accepted as: the user's pick, or the assistant's.
 	func status(of item: StatusSuggestion) -> ThreadStatus { statusChoices[item.id] ?? item.suggestion.status }
@@ -254,28 +296,40 @@ final class Automation {
 	/// Changes a suggestion before it is accepted; nothing is applied yet.
 	func choose(_ status: ThreadStatus, for item: StatusSuggestion) {
 		statusChoices[item.id] = status == item.suggestion.status ? nil : status
+		if status != .longTerm { folderChoices[item.id] = nil }
 	}
 
-	func accept(_ item: StatusSuggestion, as status: ThreadStatus? = nil, store: MailStore) {
+	/// Confirms one suggestion. Confirming is the user's go-ahead: Can archive moves the mail to
+	/// Archive and To file with a folder moves it there; the others become the conversation's tray.
+	func accept(_ item: StatusSuggestion, as status: ThreadStatus? = nil, store: MailStore, quietly: Bool = false) {
 		let s = item.suggestion
-		defer { statusChoices[item.id] = nil }
-		store.statuses.set(status ?? self.status(of: item), account: item.accountID, message: item.summary.id, summary: item.summary, ask: s.ask, due: s.due)
+		let final = status ?? self.status(of: item)
+		let folder = folder(of: item)
+		defer { statusChoices[item.id] = nil; folderChoices[item.id] = nil }
 		statusSuggestions.removeAll { $0.id == item.id }
+		if let id = s.notebookID, final == s.status, folder?.id == s.folderID,
+		   let entry = Notebook.shared.entries.first(where: { $0.id == id }) { Notebook.shared.confirmed(entry) }
+		if !quietly {
+			Notebook.shared.noticeChange(from: item.summary, account: item.accountID, to: final, suggested: s.status,
+										 folderID: folder?.id, folderName: folder?.name)
+		}
+		switch final {
+		case .canArchive:
+			store.archive(item.summary.id, accountID: item.accountID)
+		case .longTerm where folder != nil:
+			store.file(item.summary.id, accountID: item.accountID, into: folder!.id, name: folder!.name, quietly: quietly)
+		default:
+			store.statuses.set(final, account: item.accountID, message: item.summary.id, summary: item.summary, ask: s.ask, due: s.due,
+							   kind: final == .needsReply ? s.kind : nil, reason: "Sorted by \(SecretarySettings.name), confirmed by you")
+		}
 		if store.statusList != nil || store.statusFilter != .all { store.reload() }
 	}
 
 	func acceptAllStatuses(store: MailStore) {
 		let all = statusSuggestions
 		let chosen = all.map { status(of: $0) }
-		for (item, status) in zip(all, chosen) { accept(item, as: status, store: store) }
-		var archivable: [ThreadRecord] = []
-		if AssistantSettings.autoArchive {
-			for (item, status) in zip(all, chosen) where status == .canArchive {
-				if let r = store.statuses.record(account: item.accountID, message: item.summary.id) { archivable.append(r) }
-			}
-			if !archivable.isEmpty { store.archive(records: archivable) }
-		}
-		store.showToast("Sorted \(all.count) conversation\(all.count == 1 ? "" : "s")", icon: .sparkles)
+		for (item, status) in zip(all, chosen) { accept(item, as: status, store: store, quietly: true) }
+		store.showToast("Sorted \(all.count) email\(all.count == 1 ? "" : "s")", icon: .sparkles)
 	}
 
 	func dismiss(_ item: StatusSuggestion) {
@@ -283,6 +337,7 @@ final class Automation {
 		UserDefaults.standard.set(Array(dismissedStatuses.suffix(2000)), forKey: "folio.dismissedStatusSuggestions")
 		statusSuggestions.removeAll { $0.id == item.id }
 		statusChoices[item.id] = nil
+		folderChoices[item.id] = nil
 	}
 
 	/// Drops the suggestion for a message once it is given a status some other way.

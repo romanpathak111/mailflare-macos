@@ -50,6 +50,9 @@ struct SettingsView: View {
 					case .general: GeneralSettings()
 					case .notifications: NotificationSettingsPage()
 					case .accounts: AccountSettings()
+					case .secretary: SecretarySettingsPage()
+					case .desk: DeskSettingsPage()
+					case .notebook: NotebookPage()
 					case .assistant: AssistantSettingsPage()
 					case .ai: AISettingsPage()
 					case .mcp: MCPSettingsPage()
@@ -909,8 +912,8 @@ private struct AssistantSettingsPage: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: 36) {
 			VStack(alignment: .leading, spacing: 10) {
-				Text("Assistant").font(.system(size: 36, weight: .bold)).tracking(-1.25).foregroundStyle(Folio.ink)
-				Text("The assistant runs Claude Code or Codex on this Mac with the account you already pay for, so no API key is needed. It suggests a status for each thread, drafts replies and writes your Today brief, using your plan.")
+				Text("AI engine and privacy").font(.system(size: 36, weight: .bold)).tracking(-1.25).foregroundStyle(Folio.ink)
+				Text("\(SecretarySettings.name) thinks with Claude Code or Codex on this Mac, using the account you already pay for, or with Apple Intelligence, which never leaves this Mac. No API key is needed.")
 					.font(.system(size: 16)).lineSpacing(4).foregroundStyle(Folio.body)
 					.frame(maxWidth: 640, alignment: .leading).fixedSize(horizontal: false, vertical: true)
 			}
@@ -921,14 +924,11 @@ private struct AssistantSettingsPage: View {
 			VStack(alignment: .leading, spacing: 0) {
 				Text("What the assistant does").font(.system(size: 20, weight: .bold)).tracking(-0.4).foregroundStyle(Folio.ink)
 					.padding(.bottom, 12)
-				behaviour("Suggest a status for new mail", "Proposes Needs reply, Waiting, Can archive or Long-term value. You confirm.", $suggestStatus)
+				behaviour("Sort new mail onto the Desk", "Proposes Needs you, Waiting, To file or Can archive for each new email. You confirm.", $suggestStatus)
 				behaviour("Suggest folder rules", "Learns where you file mail and offers to file it for you. You approve each rule.", $suggestFolders)
-				behaviour("Draft replies", "Prepares a short reply for threads marked Needs reply.", $draftReplies)
-				behaviour("Write the Today brief", "Summarises what needs you and who is waiting on you each morning.", $todayBrief)
-				behaviour("Archive without asking", "Moves Can archive threads to Archive on its own. Off by default.", $autoArchive)
 				Rectangle().fill(Folio.line).frame(height: 1)
 			}
-			Text("\(store.displayBrandName) sends only the threads the assistant needs to your connected account. You can disconnect at any time.")
+			Text("What is sent: with Claude or Codex, only the emails \(SecretarySettings.name) needs for a task (sorting reads sender, subject and the first lines; a gist or an answer reads the whole email) go to your own account with that service. With Apple Intelligence nothing leaves this Mac. You can disconnect at any time.")
 				.font(.system(size: 13)).lineSpacing(3).foregroundStyle(Folio.meta)
 				.frame(maxWidth: 640, alignment: .leading).fixedSize(horizontal: false, vertical: true)
 			if ai.providers.count > 0 {

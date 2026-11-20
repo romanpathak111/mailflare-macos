@@ -118,20 +118,6 @@ struct AccountsFoldersPage: View {
 				}
 			}
 			.padding(.bottom, 12)
-			if !automation.ruleSuggestions.isEmpty {
-				VStack(alignment: .leading, spacing: 0) {
-					Text("SUGGESTED RULES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Folio.meta)
-						.padding(.vertical, 8)
-					ForEach(automation.ruleSuggestions) { suggestion in
-						Rectangle().fill(Folio.line).frame(height: 1)
-						RuleSuggestionRow(suggestion: suggestion)
-					}
-				}
-				.padding(.horizontal, 14).padding(.bottom, 4)
-				.background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Folio.soft))
-				.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Folio.line, lineWidth: 1))
-				.padding(.bottom, 16)
-			}
 			ForEach(store.accountList) { account in
 				let boxes = store.customFolders(of: account.id)
 				if store.accountList.count > 1 && !boxes.isEmpty {

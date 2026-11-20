@@ -10,7 +10,6 @@ struct MessageListView: View {
 			header
 				// Above the list, so the filter button's tooltip is not covered by it.
 				.zIndex(1)
-			if store.sidebar == .allInboxes && store.statusList == nil { StatusFilterBar() }
 			Rectangle().fill(Folio.softLine).frame(height: 1)
 			list
 		}
@@ -26,6 +25,11 @@ struct MessageListView: View {
 				.help(store.title)
 			Text(store.subtitle).font(.system(size: 13)).foregroundStyle(Folio.meta).lineLimit(1).fixedSize()
 			Spacer(minLength: 4)
+			if store.libraryFolder != nil {
+				Button("Table") { store.setLibraryMode(.table) }
+					.buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(Folio.selectionInk)
+					.help("Show this Library folder as a table with the gist")
+			}
 			Button { store.unreadOnly.toggle() } label: {
 				HIcon(.filter, size: 15)
 					.frame(width: 26, height: 26)

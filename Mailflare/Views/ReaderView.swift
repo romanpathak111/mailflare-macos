@@ -41,7 +41,8 @@ private struct MessageDetail: View {
 	@State private var dropError: String?
 	@State private var isDropTarget = false
 	@AppStorage(ReadingSettings.loadRemoteContentKey) private var loadRemoteContent = true
-	@AppStorage(AssistantSettings.draftRepliesKey) private var draftsReplies = true
+	/// Set by "Draft it for me": the suggested reply is written only on request.
+	@State private var draftRequested = false
 
 	init(message: MessageSummary) {
 		self.message = message
@@ -100,7 +101,9 @@ private struct MessageDetail: View {
 						.fixedSize(horizontal: false, vertical: true)
 						.textSelection(.enabled)
 						.padding(.bottom, 18)
-					if store.role(of: message) != "drafts" { StatusPicker(message: message).padding(.bottom, 24).zIndex(5) }
+					if store.role(of: message) != "drafts" { StatusPicker(message: message).padding(.bottom, 16).zIndex(5) }
+					StandingNote(message: message, draftRequested: $draftRequested).padding(.bottom, 16)
+					ConversationTrail(message: message, before: true).padding(.bottom, 16)
 					Rectangle().fill(Folio.line).frame(height: 1).padding(.bottom, 24)
 					VStack(alignment: .leading, spacing: 12) {
 						header
@@ -138,7 +141,9 @@ private struct MessageDetail: View {
 						}
 					}
 				}
-				if store.role(of: message) != "drafts", store.status(of: message) == .needsReply, draftsReplies, store.ai.isConfigured {
+				ConversationTrail(message: message, before: false)
+					.padding(.horizontal, 44).padding(.top, 16)
+				if store.role(of: message) != "drafts", draftRequested, store.ai.isConfigured {
 					SuggestedReplyCard(message: message)
 						.padding(.horizontal, 44).padding(.top, 24).padding(.bottom, 8)
 				}

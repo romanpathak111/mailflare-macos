@@ -4,26 +4,35 @@ import SwiftUI
 /// What a conversation needs from the user. Every status has one colour, used the same way in the
 /// sidebar, the message list, the reader, Today and the Status board.
 enum ThreadStatus: String, CaseIterable, Codable, Identifiable {
-	case needsReply, waiting, canArchive, longTerm
+	case needsReply, waiting, longTerm, canArchive
 
 	var id: String { rawValue }
 
-	var title: String {
+	/// The tray's name: the user's own from Settings › Desk, or the standard one.
+	var title: String { Self.customName(self) ?? defaultTitle }
+
+	static func customName(_ status: ThreadStatus) -> String? {
+		let n = (UserDefaults.standard.string(forKey: "tray.name.\(status.rawValue)") ?? "").trimmingCharacters(in: .whitespaces)
+		return n.isEmpty ? nil : n
+	}
+
+	var defaultTitle: String {
 		switch self {
-		case .needsReply: "Needs reply"
+		case .needsReply: "Needs you"
 		case .waiting: "Waiting on others"
 		case .canArchive: "Can archive"
-		case .longTerm: "Long-term value"
+		case .longTerm: "To file"
 		}
 	}
 
 	/// For tight places: filter chips and the message list.
 	var shortTitle: String {
+		if let custom = Self.customName(self) { return custom }
 		switch self {
-		case .needsReply: "Needs reply"
-		case .waiting: "Waiting"
-		case .canArchive: "Can archive"
-		case .longTerm: "Long-term"
+		case .needsReply: return "Needs you"
+		case .waiting: return "Waiting"
+		case .canArchive: return "Can archive"
+		case .longTerm: return "To file"
 		}
 	}
 
@@ -70,10 +79,10 @@ enum ThreadStatus: String, CaseIterable, Codable, Identifiable {
 	/// What the assistant is told about each status.
 	var meaning: String {
 		switch self {
-		case .needsReply: "the user owes the sender an answer, or must act on it"
+		case .needsReply: "the user must act: answer, decide, sign, pay or read something closely"
 		case .waiting: "the user already answered and is waiting for the other person"
 		case .canArchive: "nothing to do: newsletters, receipts, notifications, finished threads"
-		case .longTerm: "worth keeping to find later: contracts, references, decisions, files"
+		case .longTerm: "nothing to do now but worth keeping in a folder: receipts, invoices, statements, certificates, contracts, references"
 		}
 	}
 }
@@ -87,7 +96,7 @@ enum StatusFilter: String, CaseIterable, Identifiable {
 	var title: String {
 		switch self {
 		case .all: "All"
-		case .needsReply: "Needs reply"
+		case .needsReply: "Needs you"
 		case .waiting: "Waiting"
 		case .unsorted: "Unsorted"
 		}
@@ -105,4 +114,12 @@ enum StatusFilter: String, CaseIterable, Identifiable {
 /// Which full-width screen the main card shows. `mail` is the usual list and reader.
 enum AppScreen: Equatable {
 	case home, board, mail
+}
+
+/// What a Needs you conversation asks of the user, shown as a small tag beside it.
+enum NeedKind: String, CaseIterable, Codable, Identifiable {
+	case reply, decide, sign, pay, read
+
+	var id: String { rawValue }
+	var title: String { rawValue.capitalized }
 }

@@ -3,7 +3,7 @@ import ServiceManagement
 
 /// The pages of the Settings view, listed in the sidebar in this order.
 enum SettingsPage: String, CaseIterable, Identifiable {
-	case general, accounts, assistant, ai, mcp, notifications, license, support, about
+	case general, accounts, secretary, desk, notebook, assistant, ai, mcp, notifications, license, support, about
 
 	var id: String { rawValue }
 
@@ -12,7 +12,10 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 		case .general: "Preferences"
 		case .notifications: "Notifications"
 		case .accounts: "Accounts and folders"
-		case .assistant: "Assistant"
+		case .secretary: "Secretary"
+		case .desk: "Desk, trays and Library"
+		case .notebook: "Notebook"
+		case .assistant: "AI engine and privacy"
 		case .ai: "AI Providers"
 		case .mcp: "MCP Credentials"
 		case .license: "License"
@@ -26,6 +29,9 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 		case .general: .settings
 		case .notifications: .bell
 		case .accounts: .allInboxes
+		case .secretary: .person
+		case .desk: .inbox
+		case .notebook: .bookmark
 		case .assistant: .aiContent
 		case .ai: .sparkles
 		case .mcp: .link
@@ -51,7 +57,7 @@ enum SettingsSection: CaseIterable, Identifiable {
 
 	var pages: [SettingsPage] {
 		switch self {
-		case .general: [.general, .accounts, .notifications, .assistant, .ai, .mcp]
+		case .general: [.secretary, .desk, .notebook, .assistant, .general, .accounts, .notifications, .ai, .mcp]
 		case .about: [.support, .about]
 		}
 	}

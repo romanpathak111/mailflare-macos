@@ -18,8 +18,8 @@ struct SuggestedReplyCard: View {
 	@MainActor private static var cache: [String: String] = [:]
 
 	private var reason: String {
-		if let ask = store.statusRecord(of: message.id)?.ask, !ask.isEmpty { return "Marked Needs reply: \(ask)" }
-		return "Marked Needs reply"
+		if let ask = store.statusRecord(of: message.id)?.ask, !ask.isEmpty { return "Needs you: \(ask)" }
+		return "Needs you"
 	}
 
 	var body: some View {

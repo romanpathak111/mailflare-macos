@@ -124,8 +124,20 @@ struct StatusPicker: View {
 					}
 					if current == .needsReply {
 						DropdownDivider()
+						ForEach(NeedKind.allCases) { kind in
+							DropdownRow(label: "Needs: \(kind.title)", icon: .reply, isSelected: (store.statusRecord(of: message.id)?.kind ?? .reply) == kind) {
+								withAnimation(.snappy(duration: 0.2)) { isOpen = false; store.setKind(kind, for: message.id) }
+							}
+						}
 						DropdownRow(label: "Due today", icon: .clock, isSelected: dueToday) {
 							withAnimation(.snappy(duration: 0.2)) { isOpen = false; store.setDueToday(!dueToday, for: message.id) }
+						}
+					}
+					let folders = store.customFolders(of: store.ownerOf(message.id).account)
+					if !folders.isEmpty && store.role(of: message) == "inbox" {
+						DropdownDivider()
+						ForEach(folders.prefix(10)) { box in
+							DropdownRow(label: "File in \(box.name)", icon: .folder) { file(in: box) }
 						}
 					}
 					if current != nil {
@@ -140,10 +152,23 @@ struct StatusPicker: View {
 	}
 
 	private func choose(_ status: ThreadStatus?) {
+		let before = current ?? suggestion?.status
 		withAnimation(.snappy(duration: 0.2)) {
 			isOpen = false
 			store.setStatus(status, for: message.id)
 		}
+		if let status, before != nil {
+			Notebook.shared.noticeChange(from: message, account: store.ownerOf(message.id).account, to: status, suggested: before)
+		}
+	}
+
+	/// Files the message in a Library folder now, and offers to remember the sender.
+	private func file(in box: Mailbox) {
+		let owner = store.ownerOf(message.id)
+		withAnimation(.snappy(duration: 0.2)) { isOpen = false }
+		Notebook.shared.noticeChange(from: message, account: owner.account, to: .longTerm, suggested: current ?? suggestion?.status ?? .needsReply,
+									 folderID: box.id, folderName: box.name)
+		store.file(owner.message, accountID: owner.account, into: box.id, name: box.name)
 	}
 }
 

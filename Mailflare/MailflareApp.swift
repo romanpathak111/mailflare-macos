@@ -19,6 +19,7 @@ struct MailflareApp: App {
 				.environment(store)
 				.environment(updater)
 				.task { await store.restore() }
+				.task { AskPanelController.shared.install(store: store) }
 				.task { await store.license.revalidate() }
 				.task { await updater.checkPeriodically() }
 				.frame(minWidth: 540, minHeight: 560)
@@ -36,12 +37,12 @@ struct MailflareApp: App {
 					.disabled(store.phase != .ready)
 			}
 			CommandMenu("Go") {
-				Button("Today") { store.openScreen(.home) }
+				Button("Desk") { store.openScreen(.home) }
 					.keyboardShortcut("1").disabled(store.phase != .ready)
-				Button("Status Board") { store.openScreen(.board) }
-					.keyboardShortcut("2").disabled(store.phase != .ready)
 				Button("Inbox") { store.openTopItem(.allInboxes) }
-					.keyboardShortcut("3").disabled(store.phase != .ready)
+					.keyboardShortcut("2").disabled(store.phase != .ready)
+				Button("Ask \(SecretarySettings.name)…") { AskPanelController.shared.show(store: store) }
+					.keyboardShortcut(" ", modifiers: .option).disabled(store.phase != .ready)
 			}
 			CommandGroup(replacing: .appSettings) {
 				Button("Settings…") { store.settingsPage = store.settingsPage ?? .general }
@@ -50,6 +51,14 @@ struct MailflareApp: App {
 			}
 			CommandGroup(after: .appInfo) {
 				Button("Check for Updates…") { Task { await updater.check() } }
+			}
+		}
+		// The envelope in the menu bar: ask from anywhere, even with the window closed.
+		MenuBarExtra("SuperMail", systemImage: "envelope") {
+			Button("Ask \(SecretarySettings.name)…") { AskPanelController.shared.show(store: store) }
+			Button("Open the Desk") {
+				store.openScreen(.home)
+				NSApp.activate(ignoringOtherApps: true)
 			}
 		}
 	}

@@ -21,6 +21,10 @@ struct ThreadRecord: Codable, Identifiable, Hashable {
 	var due: Date?
 	/// The assistant's one-line reason or ask ("Confirm Friday's session").
 	var ask: String?
+	/// What a Needs you conversation asks for: a reply, a decision, a signature, a payment or a careful read.
+	var kind: NeedKind?
+	/// How the status was last given: by the user, or by SuperMail noticing a reply (shown in "Where this stands").
+	var reason: String?
 
 	var id: String { StatusStore.key(account: accountID, message: messageID) }
 	var senderDisplay: String { fromName.isEmpty ? fromEmail : fromName }
@@ -88,6 +92,13 @@ final class StatusStore {
 		return records.values.first { $0.accountID == account && $0.threadID == thread }?.status
 	}
 
+	/// The record of the conversation a message is in: its own, or the one given to another message of the thread.
+	func record(account: String, message: String, thread: String?) -> ThreadRecord? {
+		if let own = record(account: account, message: message) { return own }
+		guard let thread, !thread.isEmpty else { return nil }
+		return records.values.first { $0.accountID == account && $0.threadID == thread }
+	}
+
 	/// Sets or clears the day a reply is due.
 	func setDue(_ due: Date?, account: String, message: String) {
 		let key = Self.key(account: account, message: message)
@@ -114,17 +125,19 @@ final class StatusStore {
 	// MARK: Changing
 
 	/// Gives a conversation a status. Setting the status it already has changes nothing, so its age is kept.
-	func set(_ status: ThreadStatus, account: String, message: String, summary: MessageSummary?, ask: String? = nil, due: Date? = nil) {
+	func set(_ status: ThreadStatus, account: String, message: String, summary: MessageSummary?, ask: String? = nil, due: Date? = nil,
+			 kind: NeedKind? = nil, reason: String? = nil) {
 		let key = Self.key(account: account, message: message)
 		if var existing = records[key] {
-			if existing.status != status { existing.status = status; existing.statusAt = .now; existing.due = due; existing.ask = ask }
-			else { existing.ask = ask ?? existing.ask; existing.due = due ?? existing.due }
+			if existing.status != status {
+				existing.status = status; existing.statusAt = .now; existing.due = due; existing.ask = ask; existing.kind = kind; existing.reason = reason
+			} else { existing.ask = ask ?? existing.ask; existing.due = due ?? existing.due; existing.kind = kind ?? existing.kind; existing.reason = reason ?? existing.reason }
 			if let summary { existing.fill(from: summary) }
 			records[key] = existing
 			dropSiblings(of: existing)
 		} else {
 			var record = ThreadRecord(accountID: account, messageID: message, status: status, subject: "", fromName: "", fromEmail: "",
-									  preview: "", receivedAt: .now, statusAt: .now, due: due, ask: ask)
+									  preview: "", receivedAt: .now, statusAt: .now, due: due, ask: ask, kind: kind, reason: reason)
 			if let summary { record.fill(from: summary) }
 			records[key] = record
 			dropSiblings(of: record)
