@@ -114,6 +114,8 @@ enum StatusFilter: String, CaseIterable, Identifiable {
 /// Which full-width screen the main card shows. `mail` is the usual list and reader.
 enum AppScreen: Equatable {
 	case home, board, mail
+	/// One account's section of the Library.
+	case shelf(String)
 }
 
 /// What a Needs you conversation asks of the user, shown as a small tag beside it.

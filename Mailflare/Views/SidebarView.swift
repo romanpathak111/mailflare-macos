@@ -67,10 +67,6 @@ struct SidebarView: View {
 	private var mailMenu: some View {
 		VStack(spacing: 0) {
 			wordmark
-			header
-				.opacity(switcherOpen ? 0 : 1)
-				.allowsHitTesting(!switcherOpen)
-				.padding(.bottom, 14)
 			ScrollView {
 				VStack(alignment: .leading, spacing: 2) {
 					askButton
@@ -395,31 +391,105 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 		}
 	}
 
-	/// The Library: the user's own folders and labels, and Archive for everything finished.
+	/// The Library: one section per account, like departments, each with its own folders, folded
+	/// until opened; then Archive for everything finished.
 	private var libraryRoom: some View {
 		room("room-library", "LIBRARY · FILED", icon: .bookmark, ink: ThreadStatus.longTerm.ink,
 			 fill: ThreadStatus.longTerm.tileFill, stroke: ThreadStatus.longTerm.tileStroke) {
-			if store.showsAllInboxes {
-				let groups = store.sidebarGroups
-				ForEach(groups) { group in
-					let folders = store.customFolders(of: group.account.id, inbox: group.inbox)
-					if groups.count > 1 && !folders.isEmpty {
-						Text(group.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Folio.meta)
-							.padding(.horizontal, 12).padding(.top, 6).lineLimit(1)
-					}
-					ForEach(folders) { box in folderRow(box, group: group) }
-				}
-			} else {
-				ForEach(store.scopeFolders) { box in folderRow(box, group: nil) }
-			}
-			if let account = store.account ?? store.accountList.first, store.canCreateFolders(accountID: account.id) {
-				SidebarRow(icon: .add, title: store.isGmail ? "New label" : "New folder", badge: 0, tint: nil, isSelected: false) {
-					store.folderRequest = .init(accountID: account.id, kind: .create(parentID: (store.scopeInbox ?? store.inboxAddresses.first)?.id))
-				}
-			}
-			SidebarRow(icon: .archive, title: "Archive", badge: 0, tint: nil,
+			ForEach(store.accountList) { account in department(account) }
+			SidebarRow(icon: .archive, title: "Archive", badge: 0, tint: nil, compact: true,
 					   isSelected: store.settingsPage == nil && store.screen == .mail && store.focus == nil && store.sidebar == .allArchive) {
 				store.openTopItem(.allArchive)
+			}
+		}
+	}
+
+	/// One account's section of the Library: its name opens the section, the chevron unfolds it.
+	@ViewBuilder
+	private func department(_ account: Account) -> some View {
+		let key = "open:lib:" + account.id
+		let isOpen = store.collapsedSections.contains(key)
+		let folders = store.libraryFolders(of: account.id)
+		let selected = store.settingsPage == nil && store.screen == .shelf(account.id)
+		HStack(spacing: 6) {
+			Button { withAnimation(.snappy(duration: 0.2)) { store.toggleSection(key) } } label: {
+				HIcon(.chevronRight, size: 9).rotationEffect(.degrees(isOpen ? 90 : 0)).foregroundStyle(Folio.meta)
+					.frame(width: 16, height: 26).contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+			.help(isOpen ? "Fold" : "Show its folders")
+			Button { store.openShelf(account.id) } label: {
+				HStack(spacing: 8) {
+					ProfileAvatar(key: AvatarCache.key(account: account.id), name: store.accountName(account), size: 18)
+					Text(store.switcherName(account)).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
+						.foregroundStyle(selected ? Folio.selectionInk : Folio.ink).lineLimit(1)
+					Spacer(minLength: 4)
+					Text("\(folders.count)").font(.system(size: 12)).foregroundStyle(Folio.meta)
+				}
+				.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+			.help("Open this account's section of the Library")
+		}
+		.padding(.leading, 4).padding(.trailing, 12).frame(height: 32)
+		.background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(selected ? Folio.selection : .clear))
+		if isOpen {
+			let visible = folders.filter { f in
+				// A subfolder shows only while every folder above it is open.
+				var parent = f.parentID
+				while let p = parent {
+					if !store.collapsedSections.contains("open:libf:" + p) { return false }
+					parent = folders.first { $0.id == p }?.parentID
+				}
+				return true
+			}
+			ForEach(visible) { folder in
+				libraryRow(folder, hasChildren: folders.contains { $0.parentID == folder.id })
+			}
+		}
+	}
+
+	private func libraryRow(_ folder: LibraryFolder, hasChildren: Bool) -> some View {
+		let key = "open:libf:" + folder.id
+		let isOpen = store.collapsedSections.contains(key)
+		let selected = store.settingsPage == nil && store.screen == .mail && store.account?.id == folder.accountID && store.sidebar == .mailbox(folder.id)
+		return HStack(spacing: 4) {
+			if hasChildren {
+				Button { withAnimation(.snappy(duration: 0.2)) { store.toggleSection(key) } } label: {
+					HIcon(.chevronRight, size: 8).rotationEffect(.degrees(isOpen ? 90 : 0)).foregroundStyle(Folio.meta)
+						.frame(width: 14, height: 24).contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+			} else {
+				Color.clear.frame(width: 14, height: 1)
+			}
+			Button { store.openLibraryFolder(folder) } label: {
+				HStack(spacing: 8) {
+					Text(folder.name).font(.system(size: 13, weight: selected ? .semibold : .regular))
+						.foregroundStyle(selected ? Folio.selectionInk : Folio.body).lineLimit(1)
+					Spacer(minLength: 4)
+					if folder.unread > 0 { Text("\(folder.unread)").font(.system(size: 11.5)).foregroundStyle(Folio.meta) }
+				}
+				.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+		}
+		.padding(.leading, 18 + CGFloat(folder.depth) * 12).padding(.trailing, 12).frame(height: 27)
+		.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? Folio.selection : .clear))
+		.contextMenu { folderMenu(folder) }
+	}
+
+	@ViewBuilder
+	private func folderMenu(_ folder: LibraryFolder) -> some View {
+		Button("Hide from the Library") { store.setLibraryFolder(folder.id, hidden: true) }
+		if let box = store.mailboxes(of: folder.accountID).first(where: { $0.id == folder.id }),
+		   !MailStore.isPending(box), let support = store.folderSupport(accountID: folder.accountID) {
+			Divider()
+			if support.canRename {
+				Button("Rename \(support.noun.capitalized)…") { store.folderRequest = .init(accountID: folder.accountID, kind: .rename(box)) }
+			}
+			if support.canDelete {
+				Button("Delete \(support.noun.capitalized)…", role: .destructive) { store.folderRequest = .init(accountID: folder.accountID, kind: .delete(box)) }
 			}
 		}
 	}
@@ -427,9 +497,33 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 	/// The Mail room: everything as it came, as plain lists.
 	private var mailRoom: some View {
 		room("room-mail", "MAIL ROOM · AS IT CAME", icon: .allInboxes, ink: Folio.meta, fill: .clear, stroke: Folio.line) {
+			if store.accountList.count > 1 { scopeMenu }
 			topList
-			if store.showsAllInboxes { accountsSection } else { singleSections; accountList }
+			singleSections
 		}
+	}
+
+	/// Which accounts the mail room shows: all of them, or one.
+	private var scopeMenu: some View {
+		Menu {
+			Button("All accounts") { store.selectAllAccounts() }
+			Divider()
+			ForEach(store.accountList) { account in
+				Button(store.switcherName(account)) { store.selectInbox(nil, accountID: account.id) }
+			}
+			Divider()
+			Button("Manage accounts…") { store.settingsPage = .accounts }
+		} label: {
+			HStack(spacing: 6) {
+				Text(store.isAllAccounts ? "All accounts" : (store.account.map(store.switcherName) ?? "All accounts"))
+					.font(.system(size: 12.5, weight: .medium)).foregroundStyle(Folio.body).lineLimit(1)
+				Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Folio.meta)
+				Spacer(minLength: 0)
+			}
+			.padding(.horizontal, 12).frame(height: 24).contentShape(Rectangle())
+		}
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+		.help("Show the mail room for all accounts or one")
 	}
 
 	/// Every account, as the mockup lists them, with + to add one. Shown when one account is in view;
@@ -670,7 +764,9 @@ private func actionRow(_ icon: AppIcon, _ title: String, action: @escaping () ->
 			}
 			// Inside Settings the menu above is the way around, so these are only for the mail view.
 			if store.settingsPage == nil {
-				assistantPill
+				SidebarRow(icon: .bookmark, title: "\(SecretarySettings.possessive) notebook", badge: 0, tint: nil, compact: true,
+						   isSelected: false) { store.settingsPage = .notebook }
+					.help("What \(SecretarySettings.name) has learned, to read, change or forget")
 				SidebarRow(icon: .settings, title: "Settings", badge: 0, tint: nil, isSelected: false) { store.settingsPage = .general }
 					.help("Settings (⌘,)")
 			}

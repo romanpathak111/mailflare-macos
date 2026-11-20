@@ -71,14 +71,14 @@ extension MailStore {
 				case .needsReply where SecretarySettings.autoWaiting:
 					// The user answered after the last message from the other side.
 					guard let mineDate, mineDate > record.receivedAt, mineDate > (theirsDate ?? .distantPast) else { continue }
-					let who = record.fromName.isEmpty ? record.fromEmail : firstName(of: record.fromName)
+					let who = MailStore.who(name: record.fromName, email: record.fromEmail)
 					statuses.set(.waiting, account: account.id, message: record.messageID, summary: nil,
 								 reason: "You replied on \(Self.when(mineDate)), so this is waiting on \(who).")
 					changed = true
 				case .waiting where SecretarySettings.autoBack:
 					// The other side answered after the user's last word.
 					guard let theirs, let theirsDate, theirsDate > record.statusAt, theirsDate > (mineDate ?? .distantPast) else { continue }
-					let who = theirs.fromName.isEmpty ? theirs.fromEmail : firstName(of: theirs.fromName)
+					let who = MailStore.who(name: theirs.fromName, email: theirs.fromEmail)
 					statuses.set(.needsReply, account: account.id, message: theirs.id, summary: theirs, kind: .reply,
 								 reason: "\(who) answered on \(Self.when(theirsDate)), so it's back with you.")
 					if theirs.id != record.messageID { statuses.remove(account: account.id, message: record.messageID) }
@@ -100,7 +100,7 @@ extension MailStore {
 
 	/// The short note at the top of a conversation: where it stands and what happens next.
 	func standing(of record: ThreadRecord) -> String {
-		let who = record.fromName.isEmpty ? record.fromEmail : firstName(of: record.fromName)
+		let who = MailStore.who(name: record.fromName, email: record.fromEmail)
 		switch record.status {
 		case .needsReply:
 			let kind = (record.kind ?? .reply)
@@ -146,6 +146,7 @@ extension MailStore {
 	}
 
 	private func afterDeskMove() {
+		filingCache = [:]
 		invalidateCaches()
 		refreshMailboxes()
 		reload()

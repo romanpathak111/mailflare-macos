@@ -20,13 +20,7 @@ struct StandingNote: View {
 						.font(.system(size: 14)).foregroundStyle(Folio.body).lineSpacing(3)
 						.fixedSize(horizontal: false, vertical: true)
 						.textSelection(.enabled)
-					if record.status == .needsReply, (record.kind ?? .reply) == .reply, store.ai.isConfigured, !draftRequested {
-						Button { withAnimation(.snappy(duration: 0.25)) { draftRequested = true } } label: {
-							HStack(spacing: 6) { HIcon(.sparkles, size: 11); Text("Draft it for me") }
-						}
-						.buttonStyle(FolioOutlineButtonStyle(ink: Folio.selectionInk, stroke: Folio.accentStroke, height: 32))
-						.help("\(SecretarySettings.name) writes a short reply for you to check. Nothing is sent.")
-					}
+					// Drafting is asked for from the reply box at the bottom.
 				}
 				Spacer(minLength: 0)
 			}

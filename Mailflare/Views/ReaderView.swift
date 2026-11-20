@@ -69,7 +69,8 @@ private struct MessageDetail: View {
 		content
 			.safeAreaInset(edge: .bottom, spacing: 0) {
 				if store.role(of: message) != "drafts" {
-					QuickReplyBox(message: message, attachments: $replyAttachments, error: $dropError)
+					QuickReplyBox(message: message, attachments: $replyAttachments, error: $dropError,
+								  onDraft: store.ai.isConfigured && !draftRequested ? { withAnimation(.snappy(duration: 0.25)) { draftRequested = true } } : nil)
 						.background {
 							LinearGradient(stops: [
 								.init(color: AppTheme.background.opacity(0), location: 0),
@@ -96,12 +97,17 @@ private struct MessageDetail: View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 0) {
 				VStack(alignment: .leading, spacing: 0) {
-					Text(message.subject.isEmpty ? "(No Subject)" : message.subject)
-						.font(.system(size: 32, weight: .bold)).tracking(-1.1).foregroundStyle(Folio.ink)
-						.fixedSize(horizontal: false, vertical: true)
-						.textSelection(.enabled)
-						.padding(.bottom, 18)
-					if store.role(of: message) != "drafts" { StatusPicker(message: message).padding(.bottom, 16).zIndex(5) }
+					// The title, with the conversation's tray as a chip at its end, as in the mockup.
+					HStack(alignment: .top, spacing: 16) {
+						Text(message.subject.isEmpty ? "(No Subject)" : message.subject)
+							.font(.system(size: 26, weight: .bold)).tracking(-0.8).foregroundStyle(Folio.ink)
+							.fixedSize(horizontal: false, vertical: true)
+							.textSelection(.enabled)
+							.frame(maxWidth: .infinity, alignment: .leading)
+						if store.role(of: message) != "drafts" { StatusPicker(message: message, compact: true).fixedSize().padding(.top, 2) }
+					}
+					.zIndex(5)
+					.padding(.bottom, 14)
 					StandingNote(message: message, draftRequested: $draftRequested).padding(.bottom, 16)
 					ConversationTrail(message: message, before: true).padding(.bottom, 16)
 					Rectangle().fill(Folio.line).frame(height: 1).padding(.bottom, 24)

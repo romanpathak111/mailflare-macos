@@ -319,6 +319,8 @@ struct ContentView: View {
 				SettingsView(page: page)
 			} else if store.screen == .home || store.screen == .board {
 				DeskView()
+			} else if case .shelf(let id) = store.screen {
+				ShelfView(accountID: id)
 			} else if store.libraryFolder != nil && store.libraryMode != .list {
 				LibraryView()
 			} else if layout.single {

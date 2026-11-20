@@ -11,6 +11,8 @@ struct QuickReplyBox: View {
 	let message: MessageSummary
 	@Binding var attachments: [OutgoingAttachment]
 	@Binding var error: String?
+	/// "Draft it for me": shown while the reply is blank, when a draft can be asked for.
+	var onDraft: (() -> Void)? = nil
 
 	@State private var isActive = false
 	@State private var html = ""
@@ -38,6 +40,7 @@ struct QuickReplyBox: View {
 	/// A reply needs words or a file to go.
 	private var canSend: Bool { !isBlank || !attachments.isEmpty }
 	private var placeholder: String { "Reply to \(message.senderDisplay)…" }
+	private var showsDraft: Bool { onDraft != nil && isBlank && attachments.isEmpty }
 	private var editorHeight: CGFloat { min(max(textHeight, Self.lineHeight), Self.lineHeight * Self.maxLines) }
 
 	var body: some View {
@@ -57,14 +60,30 @@ struct QuickReplyBox: View {
 				if isActive { editor }
 			}
 			// Clear of the Send button floating over the corner.
-			.padding(.trailing, Self.sendSize + 6)
+			.padding(.trailing, Self.sendSize + 6 + (showsDraft ? 130 : 0))
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
 		// A little more below than above, so the line sits centred in the card.
 		.padding(.leading, 14).padding(.trailing, 8).padding(.top, 8).padding(.bottom, 10)
 		.background(AppTheme.composerFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 		.overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isActive ? AppTheme.outline : AppTheme.composerStroke, lineWidth: 1))
-		.overlay(alignment: .bottomTrailing) { sendButton.padding(.trailing, 6).padding(.bottom, (Self.inactiveHeight - Self.sendSize) / 2) }
+		.overlay(alignment: .bottomTrailing) {
+			HStack(spacing: 8) {
+				if showsDraft, let onDraft {
+					Button(action: onDraft) {
+						HStack(spacing: 5) { HIcon(.sparkles, size: 11); Text("Draft it for me").font(.system(size: 12.5, weight: .semibold)) }
+							.foregroundStyle(Folio.selectionInk)
+							.padding(.horizontal, 10).frame(height: Self.sendSize)
+							.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Folio.accentSoft))
+							.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Folio.accentStroke, lineWidth: 1))
+					}
+					.buttonStyle(.plain)
+					.help("\(SecretarySettings.name) writes a short reply for you to check. Nothing is sent.")
+				}
+				sendButton
+			}
+			.padding(.trailing, 6).padding(.bottom, (Self.inactiveHeight - Self.sendSize) / 2)
+		}
 		.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 		.onTapGesture { if isActive { controller.focus() } else { activate() } }
 		.background(OutsideClickMonitor(isActive: isActive && !aiMenuOpen && !aiRunning) { deactivate() })

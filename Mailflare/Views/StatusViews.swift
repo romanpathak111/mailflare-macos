@@ -63,6 +63,8 @@ struct StatusMenuRow: View {
 struct StatusPicker: View {
 	@Environment(MailStore.self) private var store
 	let message: MessageSummary
+	/// The small chip beside the title: "Waiting on Mira ▾".
+	var compact = false
 	@State private var isOpen = false
 	@AppStorage(AssistantSettings.suggestStatusKey) private var suggestsStatus = true
 	@AppStorage(AssistantSettings.draftRepliesKey) private var draftsReplies = true
@@ -81,7 +83,7 @@ struct StatusPicker: View {
 	var body: some View {
 		HStack(spacing: 10) {
 			button
-			if let suggestion {
+			if let suggestion, !compact {
 				HStack(spacing: 6) {
 					Text("Looks like").font(Typography.notice).foregroundStyle(.secondary)
 					StatusChip(status: suggestion.status)
@@ -101,24 +103,24 @@ struct StatusPicker: View {
 		Button {
 			withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
 		} label: {
-			HStack(spacing: 10) {
-				if let current { StatusDot(status: current, size: 9) }
-				Text(current?.title ?? "Set status").font(.system(size: 15, weight: .semibold)).lineLimit(1)
-				Spacer(minLength: 12)
-				HIcon(.chevronDown, size: 13)
+			HStack(spacing: compact ? 6 : 10) {
+				if let current { StatusDot(status: current, size: compact ? 7 : 9) }
+				Text(chipTitle).font(.system(size: compact ? 13 : 15, weight: .semibold)).lineLimit(1)
+				if !compact { Spacer(minLength: 12) }
+				HIcon(.chevronDown, size: compact ? 10 : 13)
 			}
 			.foregroundStyle(current?.ink ?? Folio.body)
-			.padding(.horizontal, 16)
-			.frame(width: 230, height: 40)
-			.background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(current?.tileFill ?? Folio.chip))
-			.overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(current?.actionStroke ?? Folio.line, lineWidth: 1))
+			.padding(.horizontal, compact ? 12 : 16)
+			.frame(width: compact ? nil : 230, height: compact ? 32 : 40)
+			.background(RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous).fill(current?.tileFill ?? Folio.chip))
+			.overlay(RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous).strokeBorder(current?.actionStroke ?? Folio.line, lineWidth: 1))
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
 		.help("Status of this conversation")
-		.overlay(alignment: .topLeading) {
+		.overlay(alignment: compact ? .topTrailing : .topLeading) {
 			if isOpen {
-				DropdownCard(width: 230, anchor: .topLeading) {
+				DropdownCard(width: 250, anchor: compact ? .topTrailing : .topLeading) {
 					ForEach(ThreadStatus.allCases) { status in
 						StatusMenuRow(status: status, isSelected: status == current) { choose(status) }
 					}
@@ -133,11 +135,17 @@ struct StatusPicker: View {
 							withAnimation(.snappy(duration: 0.2)) { isOpen = false; store.setDueToday(!dueToday, for: message.id) }
 						}
 					}
-					let folders = store.customFolders(of: store.ownerOf(message.id).account)
+					let owner = store.ownerOf(message.id)
+					let folders = store.libraryFolders(of: owner.account)
 					if !folders.isEmpty && store.role(of: message) == "inbox" {
 						DropdownDivider()
-						ForEach(folders.prefix(10)) { box in
-							DropdownRow(label: "File in \(box.name)", icon: .folder) { file(in: box) }
+						// The folder this sender's mail usually goes in comes first, with why.
+						let usual = store.usualFolder(for: message, accountID: owner.account)
+						if let usual {
+							DropdownRow(label: "File in \(usual.name)", detail: usual.reason, icon: .folder) { file(id: usual.id, name: usual.name) }
+						}
+						ForEach(folders.filter { $0.id != usual?.id }.prefix(usual == nil ? 10 : 6)) { f in
+							DropdownRow(label: "File in \(f.path)", icon: .folder) { file(id: f.id, name: f.path) }
 						}
 					}
 					if current != nil {
@@ -145,7 +153,7 @@ struct StatusPicker: View {
 						DropdownRow(label: "Clear status", icon: .cancel) { choose(nil) }
 					}
 				}
-				.offset(y: 46)
+				.offset(y: compact ? 38 : 46)
 			}
 		}
 		.clickAway(isActive: isOpen) { withAnimation(.snappy(duration: 0.2)) { isOpen = false } }
@@ -162,13 +170,23 @@ struct StatusPicker: View {
 		}
 	}
 
+	/// "Waiting on Mira" for a waiting conversation, otherwise the tray's name.
+	private var chipTitle: String {
+		guard let current else { return "Set tray" }
+		if compact, current == .waiting, let r = store.statusRecord(of: message.id) {
+			let who = MailStore.who(name: r.fromName, email: r.fromEmail)
+			if !who.isEmpty { return "Waiting on \(who)" }
+		}
+		return current.title
+	}
+
 	/// Files the message in a Library folder now, and offers to remember the sender.
-	private func file(in box: Mailbox) {
+	private func file(id: String, name: String) {
 		let owner = store.ownerOf(message.id)
 		withAnimation(.snappy(duration: 0.2)) { isOpen = false }
 		Notebook.shared.noticeChange(from: message, account: owner.account, to: .longTerm, suggested: current ?? suggestion?.status ?? .needsReply,
-									 folderID: box.id, folderName: box.name)
-		store.file(owner.message, accountID: owner.account, into: box.id, name: box.name)
+									 folderID: id, folderName: name)
+		store.file(owner.message, accountID: owner.account, into: id, name: name)
 	}
 }
 

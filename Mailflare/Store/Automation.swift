@@ -240,7 +240,8 @@ final class Automation {
 		guard !items.isEmpty else { return }
 		func item(_ index: Int) -> StatusAssistant.Item {
 			let m = items[index].summary
-			return StatusAssistant.Item(id: String(index), from: m.sender.formatted, subject: m.subject, preview: PreviewText.plain(m.preview))
+			return StatusAssistant.Item(id: String(index), from: m.sender.formatted, subject: m.subject, preview: PreviewText.plain(m.preview),
+										folders: store.libraryFolders(of: items[index].account).map(\.path))
 		}
 		var answers: [String: StatusAssistant.Suggestion] = [:]
 		// The notebook and the approved folder rules decide first; the assistant reads the rest.
@@ -249,7 +250,8 @@ final class Automation {
 			if let entry = Notebook.shared.rule(for: pair.summary, account: pair.account), let status = entry.status {
 				answers[String(index)] = StatusAssistant.Suggestion(status: status, folderID: entry.folderID, folderName: entry.folderName, notebookID: entry.id)
 			} else if let rule = rules.first(where: { $0.accountID == pair.account && $0.matches(pair.summary) }) {
-				answers[String(index)] = StatusAssistant.Suggestion(status: .longTerm, folderID: rule.folderID, folderName: rule.folderName)
+				answers[String(index)] = StatusAssistant.Suggestion(status: .longTerm, folderID: rule.folderID, folderName: rule.folderName,
+																		   folderReason: "Your rule: \(rule.label.prefix(1).lowercased() + rule.label.dropFirst())")
 			} else {
 				open.append(index)
 			}
@@ -259,12 +261,34 @@ final class Automation {
 			let batch = client.onDevice ? 5 : 20
 			for start in stride(from: 0, to: open.count, by: batch) {
 				let slice = open[start..<min(start + batch, open.count)].map(item)
-				if let found = try? await StatusAssistant.classify(client: client, items: slice) { answers.merge(found) { _, new in new } }
+				if var found = try? await StatusAssistant.classify(client: client, items: slice) {
+					// The model names a folder; match it to that account's folder.
+					for (key, value) in found {
+						guard let name = value.folderName, let index = Int(key) else { continue }
+						let match = store.libraryFolders(of: items[index].account).first { $0.path.caseInsensitiveCompare(name) == .orderedSame }
+						found[key]?.folderID = match?.id
+						found[key]?.folderName = match?.name
+					}
+					answers.merge(found) { _, new in new }
+				}
 			}
 		}
 		var added: [StatusSuggestion] = []
 		for (index, pair) in items.enumerated() {
-			guard let s = answers[String(index)] ?? StatusAssistant.guess(item(index)) else { continue }
+			guard var s = answers[String(index)] ?? StatusAssistant.guess(item(index)) else { continue }
+			// A model that calls a promotion "Needs you" is overruled, unless the notebook said so.
+			let m = pair.summary
+			if s.status == .needsReply, s.notebookID == nil,
+			   StatusAssistant.isBroadcast(from: m.sender.formatted, subject: m.subject, preview: PreviewText.plain(m.preview)) {
+				s.status = .canArchive; s.kind = nil; s.ask = nil
+			}
+			// For mail going to the Library, the folder follows the user's own filing habit first.
+			if s.notebookID == nil, s.folderReason == nil, let usual = store.usualFolder(for: pair.summary, accountID: pair.account) {
+				// Kept for every email, so changing one to To file starts from the usual folder.
+				s.folderID = usual.id; s.folderName = usual.name; s.folderReason = usual.reason
+			} else if s.status == .longTerm, s.folderID != nil, s.folderReason == nil {
+				s.folderReason = s.notebookID != nil ? "From \(SecretarySettings.possessive) notebook" : "\(SecretarySettings.name)'s best guess from the email"
+			}
 			added.append(StatusSuggestion(accountID: pair.account, summary: pair.summary, suggestion: s))
 		}
 		// Anything sorted meanwhile is left out.

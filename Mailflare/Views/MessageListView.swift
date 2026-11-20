@@ -387,6 +387,21 @@ struct MessageRow: View {
 
 	private var subject: String { message.subject.trimmingCharacters(in: .whitespaces) }
 	private var preview: String { PreviewText.plain(message.preview) }
+	/// In a tray list: the record's reason or ask, or how long it has waited.
+	private var trayLine: (status: ThreadStatus, text: String)? {
+		guard store.statusList != nil, let r = store.statusRecord(of: message.id) else { return nil }
+		let who = MailStore.who(name: r.fromName, email: r.fromEmail)
+		switch r.status {
+		case .waiting:
+			let days = Calendar.current.dateComponents([.day], from: r.statusAt, to: .now).day ?? 0
+			let base = r.reason ?? "Waiting on \(who)"
+			return (r.status, days > 0 ? "\(base) · \(days) day\(days == 1 ? "" : "s")" : base)
+		case .needsReply:
+			return (r.status, [r.ask, r.reason].compactMap { $0 }.first ?? "\(who) is waiting for you")
+		default:
+			return r.reason.map { (r.status, $0) }
+		}
+	}
 
 	/// "(No Subject)", dimmed and italic, where a subject should be.
 	private var noSubject: some View {
@@ -446,7 +461,10 @@ struct MessageRow: View {
 				}
 				.overlay(alignment: .bottomLeading) { unreadDot(isLast: preview.isEmpty, lineHeight: RowMetrics.bodyLine) }
 			}
-			if !preview.isEmpty {
+			if let tray = trayLine {
+				// In a tray, where the conversation stands, in the tray's colour, as in the mockup.
+				Text(tray.text).font(Typography.notice).foregroundStyle(tray.status.ink).lineLimit(2)
+			} else if !preview.isEmpty {
 				Text(preview).font(Typography.notice).foregroundStyle(.secondary).opacity(message.seen ? 0.8 : 1).lineLimit(2)
 					.overlay(alignment: .bottomLeading) { unreadDot(isLast: true, lineHeight: RowMetrics.noticeLine) }
 			}

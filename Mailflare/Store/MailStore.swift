@@ -69,7 +69,8 @@ final class MailStore {
 	/// Whether the panel is showing: open, and a provider is set up to answer.
 	var chatVisible: Bool { chatOpen && ai.isConfigured }
 	/// Whether the assistant panel is open.
-	var chatOpen = UserDefaults.standard.bool(forKey: "chatOpen") {
+	/// Starts closed: Ask Sam is the everyday way in, as in the mockup.
+	var chatOpen = false {
 		didSet { UserDefaults.standard.set(chatOpen, forKey: "chatOpen") }
 	}
 	/// Whether the assistant fills the window, pushing the mail columns aside. Not remembered: the app
@@ -1720,6 +1721,8 @@ final class MailStore {
 	/// What the next coalesced refresh re-reads; nil when none is scheduled.
 	@ObservationIgnored private var pendingRefresh: PendingRefresh?
 	/// When conversations were last checked for replies sent or received elsewhere.
+	/// Where each sender's mail has been filed, per account; see `filingHistory(of:)`.
+	@ObservationIgnored var filingCache: [String: (at: Date, map: [String: (id: String, name: String, count: Int)])] = [:]
 	@ObservationIgnored var lastReconcile = Date.distantPast
 
 	/// Core events come in bursts (a sync reports mailboxes, then messages, then its end, for each
